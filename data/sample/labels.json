@@ -1,0 +1,162 @@
+{
+  "01_Kabir_Menon.docx": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Kabir Menon"
+  },
+  "02_Vivaan_Verma.docx": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Vivaan Verma"
+  },
+  "03_Lakshmi_Das.pdf": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Lakshmi Das"
+  },
+  "04_Priya_Agarwal.docx": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Priya Agarwal"
+  },
+  "05_Sneha_Singh.docx": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Sneha Singh"
+  },
+  "06_Arjun_Joshi.pdf": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Arjun Joshi"
+  },
+  "07_Ananya_Tripathi.docx": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Ananya Tripathi"
+  },
+  "08_Lakshmi_Singh.docx": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Lakshmi Singh"
+  },
+  "09_Kabir_Bose.pdf": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Kabir Bose"
+  },
+  "10_Rajesh_Bhatt.docx": {
+    "tier": "strong",
+    "recruiter_decision": "shortlist",
+    "candidate_name": "Rajesh Bhatt"
+  },
+  "11_Lakshmi_Rao.docx": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Lakshmi Rao"
+  },
+  "12_Ritu_Gupta.pdf": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Ritu Gupta"
+  },
+  "13_Ishaan_Agarwal.docx": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Ishaan Agarwal"
+  },
+  "14_Anjali_Nair.docx": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Anjali Nair"
+  },
+  "15_Amit_Sharma.pdf": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Amit Sharma"
+  },
+  "16_Vivaan_Bose.docx": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Vivaan Bose"
+  },
+  "17_Vivaan_Gupta.docx": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Vivaan Gupta"
+  },
+  "18_Ishaan_Ghosh.pdf": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Ishaan Ghosh"
+  },
+  "19_Arjun_Malhotra.docx": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Arjun Malhotra"
+  },
+  "20_Arjun_Tripathi.docx": {
+    "tier": "borderline",
+    "recruiter_decision": "review",
+    "candidate_name": "Arjun Tripathi"
+  },
+  "21_Shreya_Kulkarni.pdf": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Shreya Kulkarni"
+  },
+  "22_Anjali_Kapoor.docx": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Anjali Kapoor"
+  },
+  "23_Vivaan_Iyer.docx": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Vivaan Iyer"
+  },
+  "24_Ritu_Tripathi.pdf": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Ritu Tripathi"
+  },
+  "25_Rohan_Mehta.docx": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Rohan Mehta"
+  },
+  "26_Harish_Kulkarni.docx": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Harish Kulkarni"
+  },
+  "27_Kavya_Agarwal.pdf": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Kavya Agarwal"
+  },
+  "28_Tanvi_Tripathi.docx": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Tanvi Tripathi"
+  },
+  "29_Divya_Saxena.docx": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Divya Saxena"
+  },
+  "30_Arjun_Chatterjee.pdf": {
+    "tier": "unsuitable",
+    "recruiter_decision": "reject",
+    "candidate_name": "Arjun Chatterjee"
+  },
+  "31_DUPLICATE_01_Kabir_Menon.docx": {
+    "tier": "duplicate",
+    "recruiter_decision": "duplicate",
+    "candidate_name": "(duplicate)"
+  },
+  "32_corrupt_scan.pdf": {
+    "tier": "unreadable",
+    "recruiter_decision": "unreadable",
+    "candidate_name": "(unreadable)"
+  }
+}

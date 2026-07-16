@@ -1,0 +1,21 @@
+# Railway config-as-code. Railway builds the Dockerfile at the repo root (which
+# serves the API + the built React UI on one port and respects $PORT), and
+# health-checks /api/health.
+#
+# After it deploys, in the Railway dashboard:
+#   1. Variables → add  PEOPLEIQ_ADMIN_PASSWORD = <a strong password>
+#      (optional later: ANTHROPIC_API_KEY for full AI screening; PEOPLEIQ_SMTP_*
+#       + PEOPLEIQ_EMAIL_SENDING=true for real emails)
+#   2. Add a Volume mounted at  /data   so candidate data + the database survive
+#      restarts (the app stores everything under /data).
+#   3. Settings → Networking → Generate Domain  → open it, log in as `admin`.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

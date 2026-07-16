@@ -1,0 +1,306 @@
+import React, { useEffect, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { api, downloadFile } from '../api.js'
+import { Alert, Badge, Score, fmtDate, useAsync } from '../components.jsx'
+
+export default function JobDetail() {
+  const { jobId } = useParams()
+  const [tab, setTab] = useState('scorecard')
+  const job = useAsync(() => api.get(`/api/jobs/${jobId}`), [jobId])
+
+  if (job.loading) return <p>Loading…</p>
+  if (job.error) return <Alert kind="error">{job.error}</Alert>
+  const data = job.data
+
+  return (
+    <div>
+      <p className="small"><Link to="/jobs">← All jobs</Link></p>
+      <div className="row between">
+        <div>
+          <h1>{data.title} <span className="muted small">({data.job_code})</span></h1>
+          <p className="sub">
+            {data.client_name} · {data.location || 'location TBD'} · {data.work_model || '—'} ·
+            {' '}{data.working_hours || 'hours TBD'} · <Badge value={data.status} />
+          </p>
+        </div>
+        <div className="row">
+          <button className="btn secondary"
+                  onClick={() => downloadFile(`/api/jobs/${jobId}/export/leaderboard`, 'leaderboard.xlsx')}>
+            Export leaderboard
+          </button>
+          <button className="btn secondary"
+                  onClick={() => downloadFile(`/api/jobs/${jobId}/export/hm-summaries`, 'summaries.xlsx')
+                    .catch((e) => alert(e.message))}>
+            Export HM summaries
+          </button>
+        </div>
+      </div>
+
+      <div className="tabs">
+        {['scorecard', 'upload', 'leaderboard'].map((t) => (
+          <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
+            {{ scorecard: '1 · Scorecard', upload: '2 · Upload CVs', leaderboard: '3 · Screen & Leaderboard' }[t]}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'scorecard' && <ScorecardTab jobId={jobId} onApproved={job.reload} />}
+      {tab === 'upload' && <UploadTab jobId={jobId} hasScorecard={data.has_approved_scorecard} />}
+      {tab === 'leaderboard' && <LeaderboardTab jobId={jobId} hasScorecard={data.has_approved_scorecard} />}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+function ScorecardTab({ jobId, onApproved }) {
+  const [scorecard, setScorecard] = useState(null)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [rows, setRows] = useState([])
+
+  const load = () => api.get(`/api/jobs/${jobId}/scorecard`)
+    .then((s) => { setScorecard(s); setRows(s.criteria) })
+    .catch(() => setScorecard(null))
+  useEffect(() => { load() }, [jobId])
+
+  const generate = async () => {
+    setBusy(true); setError('')
+    try {
+      const s = await api.post(`/api/jobs/${jobId}/scorecard/generate`)
+      setScorecard(s); setRows(s.criteria)
+      setMessage(`Scorecard v${s.version} generated ${s.generated_by_ai ? 'by AI' : 'from job fields (offline mode)'} — review, edit, then approve.`)
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const saveEdits = async () => {
+    setBusy(true); setError('')
+    try {
+      const s = await api.put(`/api/jobs/${jobId}/scorecard/${scorecard.id}`, {
+        criteria: rows.map(({ category, name, description, weight, is_mandatory }) =>
+          ({ category, name, description, weight: Number(weight), is_mandatory })),
+      })
+      setScorecard(s); setRows(s.criteria); setEditing(false)
+      setMessage('Edits saved. Approve when ready.')
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const approve = async () => {
+    if (!window.confirm('Approve this scorecard? It becomes the immutable basis for all screening of this job.')) return
+    setBusy(true); setError('')
+    try {
+      const s = await api.post(`/api/jobs/${jobId}/scorecard/${scorecard.id}/approve`)
+      setScorecard(s); setMessage('Scorecard approved — screening is now unlocked.')
+      onApproved()
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const setRow = (i, key) => (e) => {
+    const next = [...rows]
+    next[i] = { ...next[i], [key]: key === 'is_mandatory' ? e.target.checked : e.target.value }
+    setRows(next)
+  }
+
+  return (
+    <div className="card">
+      <div className="row between">
+        <h2>Evaluation scorecard {scorecard && <Badge value={scorecard.status} />}</h2>
+        <div className="row">
+          {scorecard && scorecard.status === 'draft' && !editing &&
+            <button className="btn secondary" onClick={() => setEditing(true)}>Edit criteria</button>}
+          {editing && <button className="btn ok" onClick={saveEdits} disabled={busy}>Save edits</button>}
+          {scorecard && scorecard.status === 'draft' &&
+            <button className="btn" onClick={approve} disabled={busy}>Approve scorecard ✓</button>}
+          <button className="btn secondary" onClick={generate} disabled={busy}>
+            {scorecard ? 'Regenerate (new version)' : busy ? 'Generating…' : 'Generate from JD'}
+          </button>
+        </div>
+      </div>
+      <Alert kind="success" onClose={() => setMessage('')}>{message}</Alert>
+      <Alert kind="error" onClose={() => setError('')}>{error}</Alert>
+
+      {!scorecard && <p className="muted">No scorecard yet. Generate one from the job description —
+        the AI converts the JD into weighted, verifiable criteria which you must review and approve
+        before any resume can be screened.</p>}
+
+      {scorecard && (
+        <table className="data">
+          <thead><tr>
+            <th>Category</th><th>Criterion</th><th>What counts as evidence</th>
+            <th>Weight</th><th>Mandatory</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((c, i) => (
+              <tr key={i}>
+                <td>{editing ? (
+                  <select value={c.category} onChange={setRow(i, 'category')}>
+                    {['mandatory', 'experience', 'technical_skills', 'domain', 'qualifications',
+                      'seniority', 'location_hours', 'stability', 'preferred'].map((x) =>
+                        <option key={x} value={x}>{x}</option>)}
+                  </select>) : <Badge value={c.category} />}</td>
+                <td>{editing ? <input value={c.name} onChange={setRow(i, 'name')} /> : <b>{c.name}</b>}</td>
+                <td>{editing ? <textarea rows={2} value={c.description} onChange={setRow(i, 'description')} />
+                  : <span className="muted">{c.description}</span>}</td>
+                <td>{editing ? <input type="number" step="0.25" min="0.25" max="5" style={{ width: 70 }}
+                                      value={c.weight} onChange={setRow(i, 'weight')} /> : c.weight}</td>
+                <td>{editing ? <input type="checkbox" checked={c.is_mandatory} onChange={setRow(i, 'is_mandatory')} />
+                  : (c.is_mandatory ? '✓' : '—')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {scorecard?.approved_at && (
+        <p className="small muted">Approved by {scorecard.approved_by} on {fmtDate(scorecard.approved_at)}.</p>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+function UploadTab({ jobId, hasScorecard }) {
+  const fileRef = useRef()
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const log = useAsync(() => api.get(`/api/jobs/${jobId}/processing-log`), [jobId])
+
+  const upload = async () => {
+    const files = fileRef.current.files
+    if (!files.length) { setError('Choose one or more PDF/DOCX resumes first'); return }
+    setBusy(true); setError('')
+    const formData = new FormData()
+    for (const f of files) formData.append('files', f)
+    try {
+      const r = await api.postForm(`/api/jobs/${jobId}/candidates/upload`, formData)
+      setResult(r); log.reload(); fileRef.current.value = ''
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div>
+      <div className="card">
+        <h2>Upload resumes (PDF / DOCX)</h2>
+        {!hasScorecard && <Alert kind="info">You can upload now, but screening stays locked until
+          the scorecard is approved.</Alert>}
+        <Alert kind="error" onClose={() => setError('')}>{error}</Alert>
+        <div className="row">
+          <input type="file" ref={fileRef} multiple accept=".pdf,.docx,.doc,.txt" style={{ flex: 1 }} />
+          <button className="btn" onClick={upload} disabled={busy}>
+            {busy ? 'Uploading & parsing…' : 'Upload batch'}
+          </button>
+        </div>
+        {result && (
+          <Alert kind="success" onClose={() => setResult(null)}>
+            Batch done — processed {result.processed}, duplicates {result.duplicates},
+            unreadable {result.unreadable}, errors {result.errors}.
+          </Alert>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>Processing log</h2>
+        {log.loading ? <p>Loading…</p> : (
+          <table className="data">
+            <thead><tr><th>Time</th><th>File</th><th>Status</th><th>Detail</th></tr></thead>
+            <tbody>
+              {log.data.map((row) => (
+                <tr key={row.id}>
+                  <td className="small">{fmtDate(row.created_at)}</td>
+                  <td>{row.candidate_id
+                    ? <Link to={`/candidates/${row.candidate_id}`}>{row.filename}</Link>
+                    : row.filename}</td>
+                  <td><Badge value={row.status} /></td>
+                  <td className="small muted">{row.message}</td>
+                </tr>
+              ))}
+              {log.data.length === 0 && <tr><td colSpan={4} className="muted">Nothing processed yet.</td></tr>}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+function LeaderboardTab({ jobId, hasScorecard }) {
+  const board = useAsync(() => api.get(`/api/jobs/${jobId}/leaderboard`), [jobId])
+  const [progress, setProgress] = useState(null)
+  const [error, setError] = useState('')
+  const timer = useRef()
+
+  const poll = () => {
+    api.get(`/api/jobs/${jobId}/screen/status`).then((s) => {
+      setProgress(s)
+      if (s.running) timer.current = setTimeout(poll, 2000)
+      else board.reload()
+    })
+  }
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  const screen = async () => {
+    setError('')
+    try {
+      await api.post(`/api/jobs/${jobId}/screen`)
+      poll()
+    } catch (e) { setError(e.message) }
+  }
+
+  return (
+    <div className="card">
+      <div className="row between">
+        <h2>Candidate leaderboard</h2>
+        <button className="btn" onClick={screen} disabled={!hasScorecard || progress?.running}>
+          {progress?.running ? 'Screening…' : '▶ Screen all pending resumes'}
+        </button>
+      </div>
+      {!hasScorecard && <Alert kind="info">Approve the scorecard first (tab 1).</Alert>}
+      <Alert kind="error" onClose={() => setError('')}>{error}</Alert>
+      {progress?.running && (
+        <div style={{ marginBottom: 12 }}>
+          <div className="progressbar">
+            <div style={{ width: `${(100 * (progress.done + progress.failed)) / progress.total}%` }} />
+          </div>
+          <span className="small muted">{progress.done}/{progress.total} screened
+            {progress.failed > 0 && `, ${progress.failed} failed`}</span>
+        </div>
+      )}
+
+      {board.loading ? <p>Loading…</p> : (
+        <table className="data">
+          <thead><tr>
+            <th>#</th><th>Candidate</th><th>Match</th><th>Mandatory</th><th>Rel. exp</th>
+            <th>Key strengths</th><th>Gaps</th><th>Risk flags</th>
+            <th>AI recommendation</th><th>Confidence</th><th>Recruiter decision</th>
+          </tr></thead>
+          <tbody>
+            {board.data.map((row) => (
+              <tr key={row.candidate_id}>
+                <td><b>{row.rank}</b></td>
+                <td>
+                  <Link to={`/candidates/${row.candidate_id}`}><b>{row.candidate}</b></Link>
+                  <div className="small muted">{row.candidate_code}</div>
+                  {row.flagged_for_review && <Badge value="pending_review" />}
+                </td>
+                <td><Score value={row.overall_match} /></td>
+                <td><Badge value={row.mandatory_criteria} /></td>
+                <td>{row.relevant_experience_years} y</td>
+                <td className="small">{row.key_strengths.slice(0, 3).join('; ') || '—'}</td>
+                <td className="small">{row.gaps.slice(0, 3).join('; ') || '—'}</td>
+                <td className="small">{row.risk_flags.slice(0, 2).join('; ') || '—'}</td>
+                <td><Badge value={row.recommendation} /></td>
+                <td><Badge value={row.confidence} /></td>
+                <td><Badge value={row.recruiter_decision || row.status} /></td>
+              </tr>
+            ))}
+            {board.data.length === 0 && (
+              <tr><td colSpan={11} className="muted">No screened candidates yet — upload resumes and run screening.</td></tr>
+            )}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}

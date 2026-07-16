@@ -36,4 +36,5 @@ RUN useradd --create-home --uid 10001 appuser \
 USER appuser
 
 WORKDIR /app/backend
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Respect $PORT when the host sets it (Render, Railway, Cloud Run, …); default 8000.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

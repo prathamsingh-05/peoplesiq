@@ -7,7 +7,8 @@
 #      (optional later: ANTHROPIC_API_KEY for full AI screening; PEOPLEIQ_SMTP_*
 #       + PEOPLEIQ_EMAIL_SENDING=true for real emails)
 #   2. Add a Volume mounted at  /data   so candidate data + the database survive
-#      restarts (the app stores everything under /data).
+#      restarts (the app stores everything under /data; the image runs as root
+#      so Railway's root-owned volume mounts are writable out of the box).
 #   3. Settings → Networking → Generate Domain  → open it, log in as `admin`.
 
 [build]

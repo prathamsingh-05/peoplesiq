@@ -14,7 +14,7 @@ from . import config
 from .database import Base, engine
 from .routers import (
     admin, auth_routes, candidates, emails, engagement, interviews, jobs,
-    screening, tracker,
+    rediscovery, screening, tracker,
 )
 from .seed import seed_initial_data
 from .services import scheduler
@@ -62,7 +62,7 @@ async def security_headers(request: Request, call_next):
 
 for router in (auth_routes.router, jobs.router, candidates.router, screening.router,
                emails.router, engagement.router, interviews.router, tracker.router,
-               admin.router):
+               rediscovery.router, admin.router):
     app.include_router(router)
 
 

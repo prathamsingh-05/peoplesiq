@@ -37,9 +37,10 @@ export default function JobDetail() {
       </div>
 
       <div className="tabs">
-        {['scorecard', 'upload', 'leaderboard'].map((t) => (
+        {['scorecard', 'upload', 'leaderboard', 'rediscover'].map((t) => (
           <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-            {{ scorecard: '1 · Scorecard', upload: '2 · Upload CVs', leaderboard: '3 · Screen & Leaderboard' }[t]}
+            {{ scorecard: '1 · Scorecard', upload: '2 · Upload CVs',
+               leaderboard: '3 · Screen & Leaderboard', rediscover: '4 · Rediscover talent' }[t]}
           </button>
         ))}
       </div>
@@ -47,6 +48,7 @@ export default function JobDetail() {
       {tab === 'scorecard' && <ScorecardTab jobId={jobId} onApproved={job.reload} />}
       {tab === 'upload' && <UploadTab jobId={jobId} hasScorecard={data.has_approved_scorecard} />}
       {tab === 'leaderboard' && <LeaderboardTab jobId={jobId} hasScorecard={data.has_approved_scorecard} />}
+      {tab === 'rediscover' && <RediscoverTab jobId={jobId} hasScorecard={data.has_approved_scorecard} />}
     </div>
   )
 }
@@ -248,6 +250,25 @@ function LeaderboardTab({ jobId, hasScorecard }) {
     } catch (e) { setError(e.message) }
   }
 
+  const [selected, setSelected] = useState(new Set())
+  const toggle = (id) => {
+    const next = new Set(selected)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setSelected(next)
+  }
+  const bulkDecide = async (decision) => {
+    let reason = ''
+    if (decision === 'reject') {
+      reason = window.prompt(`Rejection reason for ${selected.size} candidate(s) (mandatory):`)
+      if (!reason) return
+    }
+    try {
+      await api.post(`/api/jobs/${jobId}/decisions/bulk`,
+        { candidate_ids: [...selected], decision, rejection_reason: reason })
+      setSelected(new Set()); board.reload()
+    } catch (e) { setError(e.message) }
+  }
+
   return (
     <div className="card">
       <div className="row between">
@@ -267,17 +288,29 @@ function LeaderboardTab({ jobId, hasScorecard }) {
             {progress.failed > 0 && `, ${progress.failed} failed`}</span>
         </div>
       )}
+      {selected.size > 0 && (
+        <div className="row" style={{ marginBottom: 10 }}>
+          <span className="small"><b>{selected.size}</b> selected —</span>
+          <button className="btn sm ok" onClick={() => bulkDecide('shortlist')}>Shortlist</button>
+          <button className="btn sm secondary" onClick={() => bulkDecide('hold')}>Hold</button>
+          <button className="btn sm danger" onClick={() => bulkDecide('reject')}>Reject…</button>
+          <button className="btn sm secondary" onClick={() => setSelected(new Set())}>Clear</button>
+        </div>
+      )}
 
       {board.loading ? <p>Loading…</p> : (
         <table className="data">
           <thead><tr>
-            <th>#</th><th>Candidate</th><th>Match</th><th>Mandatory</th><th>Rel. exp</th>
+            <th></th><th>#</th><th>Candidate</th><th>Match</th><th>Mandatory</th><th>Rel. exp</th>
             <th>Key strengths</th><th>Gaps</th><th>Risk flags</th>
             <th>AI recommendation</th><th>Confidence</th><th>Recruiter decision</th>
           </tr></thead>
           <tbody>
             {board.data.map((row) => (
               <tr key={row.candidate_id}>
+                <td><input type="checkbox" style={{ width: 'auto' }}
+                           checked={selected.has(row.candidate_id)}
+                           onChange={() => toggle(row.candidate_id)} /></td>
                 <td><b>{row.rank}</b></td>
                 <td>
                   <Link to={`/candidates/${row.candidate_id}`}><b>{row.candidate}</b></Link>
@@ -296,11 +329,87 @@ function LeaderboardTab({ jobId, hasScorecard }) {
               </tr>
             ))}
             {board.data.length === 0 && (
-              <tr><td colSpan={11} className="muted">No screened candidates yet — upload resumes and run screening.</td></tr>
+              <tr><td colSpan={12} className="muted">No screened candidates yet — upload resumes and run screening.</td></tr>
             )}
           </tbody>
         </table>
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+function RediscoverTab({ jobId, hasScorecard }) {
+  const [matches, setMatches] = useState(null)
+  const [selected, setSelected] = useState(new Set())
+  const [error, setError] = useState(''); const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const load = () => {
+    setLoading(true); setError('')
+    api.get(`/api/jobs/${jobId}/rediscover`)
+      .then(setMatches).catch((e) => setError(e.message)).finally(() => setLoading(false))
+  }
+  const toggle = (id) => {
+    const next = new Set(selected); next.has(id) ? next.delete(id) : next.add(id); setSelected(next)
+  }
+  const pull = () => api.post(`/api/jobs/${jobId}/rediscover/pull`, { candidate_ids: [...selected] })
+    .then((r) => { setMessage(`Pulled ${r.pulled.length} candidate(s) in — run screening on the leaderboard tab to evaluate them.`); setSelected(new Set()); load() })
+    .catch((e) => setError(e.message))
+
+  return (
+    <div className="card">
+      <div className="row between">
+        <div>
+          <h2>Rediscover talent</h2>
+          <p className="small muted">Resurface strong candidates already in the system from other
+            roles — including <b>silver medalists</b> who reached interview/offer stages elsewhere.
+            This is the difference between a 12-day and a 42-day time-to-fill.</p>
+        </div>
+        <button className="btn" onClick={load} disabled={!hasScorecard || loading}>
+          {loading ? 'Searching…' : '🔎 Search the candidate base'}
+        </button>
+      </div>
+      {!hasScorecard && <Alert kind="info">Approve this job's scorecard first (tab 1).</Alert>}
+      <Alert kind="error" onClose={() => setError('')}>{error}</Alert>
+      <Alert kind="success" onClose={() => setMessage('')}>{message}</Alert>
+
+      {selected.size > 0 &&
+        <button className="btn ok" style={{ marginBottom: 10 }} onClick={pull}>
+          Pull {selected.size} candidate(s) into this job →
+        </button>}
+
+      {matches && (
+        <table className="data">
+          <thead><tr>
+            <th></th><th>Candidate</th><th>Match</th><th>From role</th><th>Prior outcome</th><th>Matched on</th>
+          </tr></thead>
+          <tbody>
+            {matches.map((m) => (
+              <tr key={m.candidate_id}>
+                <td><input type="checkbox" style={{ width: 'auto' }}
+                           checked={selected.has(m.candidate_id)}
+                           onChange={() => toggle(m.candidate_id)} /></td>
+                <td>
+                  <Link to={`/candidates/${m.candidate_id}`}><b>{m.full_name}</b></Link>
+                  <div className="small muted">{m.candidate_code}
+                    {m.current_role && ` · ${m.current_role}`}</div>
+                  {m.silver_medalist && <span className="badge ok">🥈 silver medalist</span>}
+                </td>
+                <td><Score value={m.match_score} /></td>
+                <td className="small">{m.source_job_code}<br /><span className="muted">{m.source_job_title}</span></td>
+                <td className="small"><Badge value={m.prior_status} />
+                  {m.prior_recruiter_decision && <> · <Badge value={m.prior_recruiter_decision} /></>}</td>
+                <td className="small muted">{m.match_terms.join(', ')}</td>
+              </tr>
+            ))}
+            {matches.length === 0 &&
+              <tr><td colSpan={6} className="muted">No matching prior candidates found.</td></tr>}
+          </tbody>
+        </table>
+      )}
+      {!matches && !loading &&
+        <p className="muted">Click “Search the candidate base” to find prior candidates who fit this role.</p>}
     </div>
   )
 }

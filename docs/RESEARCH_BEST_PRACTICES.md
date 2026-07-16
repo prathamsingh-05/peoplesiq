@@ -81,7 +81,26 @@ deterministic fallback engine keeps screening running during outages, per-file
 isolation stops one bad resume sinking a batch, and content-hash caching
 guarantees consistent re-evaluation. (`services/screening.py`, `llm.py`)
 
-## 11. Interview intelligence done ethically
+## 11. Talent rediscovery — mine the base you already have
+
+Consistently cited as the single biggest differentiator among modern platforms:
+resurface previously screened candidates for each new requisition, especially
+**silver medalists** (people who reached late stages but weren't selected).
+Structured rediscovery is associated with ~12-day vs ~42-day time-to-fill. → For
+every job, the agent searches the entire historical candidate base against the
+approved scorecard, flags silver medalists, and lets the recruiter pull matches
+in for full evidence-based screening. (`services/rediscovery.py`)
+
+## 12. Turn audit-readiness into an actual audit
+
+Regulators and recruitment leaders want a report, not a claim. → A generated
+responsible-AI report computes selection rates, AI-vs-recruiter agreement, the
+recall-risk (AI-missed) count, and fairness-control health checks — with an
+honest note that a protected-class impact ratio requires a separate lawful data
+source, because protected attributes are deliberately never in the scoring path.
+(`services/reporting.py`)
+
+## 13. Interview intelligence done ethically
 
 Analysing interviews is valuable but fraught. The defensible approach is
 **post-interview transcript analysis with explicit consent and human review** —

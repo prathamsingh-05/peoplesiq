@@ -14,11 +14,13 @@ export default function Governance() {
         the accountability layer required by §12–15 of the brief.</p>
       <div className="tabs">
         <button className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}>Audit log</button>
+        <button className={tab === 'report' ? 'active' : ''} onClick={() => setTab('report')}>Responsible-AI report</button>
         <button className={tab === 'fairness' ? 'active' : ''} onClick={() => setTab('fairness')}>Fairness review</button>
         {user.role === 'admin' &&
           <button className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}>Users</button>}
       </div>
       {tab === 'audit' && <AuditTab />}
+      {tab === 'report' && <ReportTab />}
       {tab === 'fairness' && <FairnessTab />}
       {tab === 'users' && user.role === 'admin' && <UsersTab />}
     </div>
@@ -52,6 +54,60 @@ function AuditTab() {
           </tbody>
         </table>
       )}
+    </div>
+  )
+}
+
+function ReportTab() {
+  const report = useAsync(() => api.get('/api/responsible-ai-report'))
+  if (report.loading) return <p>Loading…</p>
+  if (report.error) return <Alert kind="error">{report.error}</Alert>
+  const r = report.data
+  const ok = (b) => b === true ? <span className="badge ok">pass</span>
+    : b === false ? <span className="badge bad">check</span> : <span className="muted">n/a</span>
+  const dist = r.recommendation_distribution || {}
+  const tile = (num, lbl) => (
+    <div className="card tile"><div className="num">{num ?? '—'}</div><div className="lbl">{lbl}</div></div>)
+  return (
+    <div>
+      <p className="small muted">Generated responsible-AI / bias-audit report — the ongoing “periodic
+        review of AI recommendations against recruiter decisions” required by the brief (§15).
+        Computed from decision data only; protected attributes are never stored in the scoring path.</p>
+      <div className="grid cols-4">
+        {tile(r.candidates_evaluated, 'Candidates evaluated')}
+        {tile(r.selection_rate_shortlist_pct != null ? `${r.selection_rate_shortlist_pct}%` : '—', 'AI shortlist selection rate')}
+        {tile(r.ai_recruiter_agreement_pct != null ? `${r.ai_recruiter_agreement_pct}%` : '—', 'AI ↔ recruiter agreement')}
+        {tile(r.ai_missed_count, 'AI-missed (recall risk)')}
+      </div>
+      <div className="grid cols-2">
+        <div className="card">
+          <h3>Fairness-control health checks</h3>
+          <table className="data"><tbody>
+            <tr><td>Every report contains résumé evidence</td><td>{ok(r.health.evidence_coverage_ok)}</td>
+              <td className="small muted">{r.reports_with_evidence_pct}%</td></tr>
+            <tr><td>No negative decision without an explanation</td><td>{ok(r.health.explanation_coverage_ok)}</td>
+              <td className="small muted">{r.negatives_without_explanation} found</td></tr>
+            <tr><td>AI ↔ recruiter agreement ≥ 80%</td><td>{ok(r.health.agreement_ok)}</td>
+              <td className="small muted">over {r.decided_candidates} decided</td></tr>
+            <tr><td>Rejections flagged for human review</td><td className="small">{r.flagged_for_review}</td>
+              <td className="small muted">{r.flagged_still_open} open</td></tr>
+          </tbody></table>
+        </div>
+        <div className="card">
+          <h3>AI recommendation distribution</h3>
+          <table className="data"><tbody>
+            <tr><td>Shortlist</td><td><Badge value="shortlist" /></td><td>{dist.shortlist ?? 0}</td></tr>
+            <tr><td>Recruiter review</td><td><Badge value="recruiter_review" /></td><td>{dist.recruiter_review ?? 0}</td></tr>
+            <tr><td>Do not shortlist</td><td><Badge value="do_not_shortlist" /></td><td>{dist.do_not_shortlist ?? 0}</td></tr>
+          </tbody></table>
+          <h3 style={{ marginTop: 12 }}>Score bands</h3>
+          <table className="data"><tbody>
+            {Object.entries(r.score_band_distribution || {}).map(([band, n]) =>
+              <tr key={band}><td>{band}</td><td>{n}</td></tr>)}
+          </tbody></table>
+        </div>
+      </div>
+      <Alert kind="info">{r.impact_ratio_note}</Alert>
     </div>
   )
 }

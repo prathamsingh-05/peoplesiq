@@ -89,6 +89,17 @@ class DecisionRequest(BaseModel):
     rejection_reason: str = ""   # mandatory when decision == reject (enforced in route)
 
 
+class BulkDecisionRequest(BaseModel):
+    candidate_ids: list[int] = Field(min_length=1, max_length=200)
+    decision: str = Field(pattern=r"^(shortlist|reject|hold)$")
+    comments: str = ""
+    rejection_reason: str = ""   # mandatory when decision == reject
+
+
+class RediscoveryPull(BaseModel):
+    candidate_ids: list[int] = Field(min_length=1, max_length=100)
+
+
 class CallOutcome(BaseModel):
     call_outcome: str = Field(pattern=r"^(interested|not_interested|unreachable|callback|other)$")
     call_notes: str = ""

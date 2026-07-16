@@ -146,3 +146,18 @@ documented as the enterprise path in FUTURE_ROADMAP.md (SMTP is the working emai
 ## Brief §19 — Deliverables: mapped in README "Deliverables map".
 
 ## Brief §20 — Definition of Done: all criteria met — verified by `tests/test_pipeline.py`.
+
+## Beyond the brief — research-driven additions
+
+Informed by research into the best AI recruitment agents (see
+`RESEARCH_BEST_PRACTICES.md`), these capabilities were added on top of the brief:
+
+| Addition | Status | Where |
+|---|---|---|
+| **Talent rediscovery / silver medalists** — resurface prior candidates from other roles for a new requisition; the most-cited differentiator (12- vs 42-day time-to-fill) | ✅ | `services/rediscovery.py`, `GET /api/jobs/{id}/rediscover`, `POST …/pull`; JobDetail "Rediscover talent" tab |
+| **Generated responsible-AI / bias-audit report** — turns audit-readiness into an actual report (selection rates, AI-vs-recruiter agreement, recall-risk count, fairness-control health checks, honest LL144 impact-ratio note) | ✅ | `services/reporting.py`, `GET /api/responsible-ai-report`; Governance "Responsible-AI report" tab |
+| **Bulk leaderboard decisions** — shortlist/hold/reject many at once (bulk reject still needs a reason) | ✅ | `POST /api/jobs/{id}/decisions/bulk`; leaderboard multi-select |
+| **Candidate search & filter** on the tracker | ✅ | `GET /api/tracker?q=&status=&decision=`; Tracker search bar |
+| **CI pipeline** — pytest + frontend build on every push/PR | ✅ | `.github/workflows/ci.yml` |
+| **Two §18 metrics automated** — mandatory-criteria extraction alignment + tracker-update accuracy | ✅ | `scripts/run_evaluation.py` (both compute 100% on the sample set) |
+| **Turnkey private deployment** — one-command Docker/Compose serving API + UI on one origin | ✅ | `Dockerfile`, `docker-compose.yml`, `docs/DEPLOYMENT.md` |

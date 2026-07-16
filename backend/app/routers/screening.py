@@ -18,7 +18,7 @@ from ..models import (
     Candidate, CandidateStatus, Evaluation, HMSummary, Job, ProcessingLog,
     Scorecard, ScorecardStatus, ScreeningQuestion, User,
 )
-from ..schemas import CallOutcome, DecisionRequest, QuestionAnswer
+from ..schemas import BulkDecisionRequest, CallOutcome, DecisionRequest, QuestionAnswer
 from ..services import screening as engine
 from ..services import summary as summary_service
 from ..services.questions import generate_questions
@@ -275,16 +275,25 @@ def record_decision(candidate_id: int, payload: DecisionRequest, request: Reques
                    "without an explanation (fairness control §15)",
         )
 
-    candidate.recruiter_decision = payload.decision
-    candidate.recruiter_comments = payload.comments
+    result = _apply_decision(db, candidate, payload.decision, payload.comments,
+                             payload.rejection_reason, user, request)
+    db.commit()
+    return result
+
+
+def _apply_decision(db, candidate: Candidate, decision: str, comments: str,
+                    rejection_reason: str, user: User, request: Request) -> dict:
+    """Shared decision logic used by the single and bulk decision endpoints."""
+    candidate.recruiter_decision = decision
+    candidate.recruiter_comments = comments
     candidate.decided_by_id = user.id
     candidate.decided_at = datetime.now(timezone.utc)
-    if payload.decision == "shortlist":
+    if decision == "shortlist":
         candidate.status = CandidateStatus.shortlisted.value
         candidate.next_action = "Schedule recruiter screening call"
-    elif payload.decision == "reject":
+    elif decision == "reject":
         candidate.status = CandidateStatus.rejected.value
-        candidate.rejection_reason = payload.rejection_reason
+        candidate.rejection_reason = rejection_reason
         candidate.next_action = "Send rejection/hold communication (draft)"
     else:
         candidate.status = CandidateStatus.on_hold.value
@@ -292,17 +301,44 @@ def record_decision(candidate_id: int, payload: DecisionRequest, request: Reques
 
     ai_rec = candidate.evaluations[0].recommendation
     agreed = (
-        (payload.decision == "shortlist" and ai_rec == "shortlist")
-        or (payload.decision == "reject" and ai_rec == "do_not_shortlist")
+        (decision == "shortlist" and ai_rec == "shortlist")
+        or (decision == "reject" and ai_rec == "do_not_shortlist")
     )
     log_action(db, "decision.recorded", user=user, entity_type="candidate",
                entity_id=candidate.id,
-               details={"decision": payload.decision, "ai_recommendation": ai_rec,
-                        "agreement": agreed, "rejection_reason": payload.rejection_reason},
+               details={"decision": decision, "ai_recommendation": ai_rec,
+                        "agreement": agreed, "rejection_reason": rejection_reason},
                ip=client_ip(request))
-    db.commit()
     return {"ok": True, "status": candidate.status,
             "ai_recommendation": ai_rec, "agreement": agreed}
+
+
+@router.post("/jobs/{job_id}/decisions/bulk")
+def bulk_decisions(job_id: int, payload: BulkDecisionRequest, request: Request,
+                   user: User = Depends(require_recruiter), db: Session = Depends(get_db)):
+    """Apply the same decision to many candidates at once (leaderboard bulk
+    action). A bulk rejection still requires a shared reason — no candidate is
+    ever rejected without an explanation."""
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if payload.decision == "reject" and not payload.rejection_reason.strip():
+        raise HTTPException(status_code=400,
+                            detail="A rejection reason is mandatory for bulk rejection")
+    applied, skipped = 0, []
+    for cid in payload.candidate_ids:
+        candidate = db.get(Candidate, cid)
+        if candidate is None or candidate.job_id != job_id or not candidate.evaluations:
+            skipped.append(cid)
+            continue
+        _apply_decision(db, candidate, payload.decision, payload.comments,
+                        payload.rejection_reason, user, request)
+        applied += 1
+    log_action(db, "decision.bulk", user=user, entity_type="job", entity_id=job_id,
+               details={"decision": payload.decision, "applied": applied,
+                        "skipped": skipped}, ip=client_ip(request))
+    db.commit()
+    return {"applied": applied, "skipped": skipped}
 
 
 # ---------------------------------------------------------------------------

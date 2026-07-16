@@ -149,6 +149,42 @@ def main() -> int:
     ) or upload["duplicates"] >= 1
     unreadable_flagged = upload["unreadable"] >= 1
 
+    # Mandatory-criteria extraction accuracy: for clear-cut tiers, does the
+    # engine's mandatory_status align with reality? (strong → met/partial;
+    # unsuitable → not_met/partial). Meaningful with the LLM engine.
+    mand_total, mand_ok = 0, 0
+    tracker = client.get("/api/tracker").raise_for_status().json()
+    by_code = {r["candidate_id"]: r for r in tracker}
+    for filename in expected_processable:
+        candidate = by_file.get(filename)
+        if candidate is None or candidate.get("ai_score") is None:
+            continue
+        tier = labels[filename]["tier"]
+        if tier not in ("strong", "unsuitable"):
+            continue
+        evaluation = client.get(
+            f"/api/candidates/{candidate['id']}/evaluation").json()
+        status = evaluation["mandatory_status"]
+        mand_total += 1
+        if tier == "strong" and status in ("met", "partially_met"):
+            mand_ok += 1
+        elif tier == "unsuitable" and status in ("not_met", "partially_met"):
+            mand_ok += 1
+
+    # Tracker-update accuracy: every screened candidate's tracker row must
+    # reflect its AI score, recommendation and a screened status.
+    tr_total, tr_ok = 0, 0
+    for filename in processed_ok:
+        candidate = by_file.get(filename)
+        row = by_code.get(candidate["candidate_code"]) if candidate else None
+        if row is None:
+            continue
+        tr_total += 1
+        if (row["ai_score"] is not None and row["ai_recommendation"]
+                and row["screening_status"] in
+                ("screened", "awaiting_review", "shortlisted", "rejected", "on_hold")):
+            tr_ok += 1
+
     def pct(n, d):
         return f"{100 * n / d:5.1f}%" if d else "  n/a"
 
@@ -167,6 +203,10 @@ def main() -> int:
           f"{pct(rejected_without_reason, reports_total):>10s}")
     print(f"{'Reports containing resume evidence':44s}{'100%':>9s}"
           f"{pct(reports_with_evidence, reports_total):>10s}")
+    print(f"{'Mandatory-criteria extraction alignment':44s}{'>=90%':>9s}"
+          f"{pct(mand_ok, mand_total):>10s}")
+    print(f"{'Tracker-update accuracy':44s}{'>=95%':>9s}"
+          f"{pct(tr_ok, tr_total):>10s}")
     print(f"{'Duplicate detected':44s}{'yes':>9s}{str(dup_detected):>10s}")
     print(f"{'Unreadable file flagged':44s}{'yes':>9s}{str(unreadable_flagged):>10s}")
     print("-" * 66)

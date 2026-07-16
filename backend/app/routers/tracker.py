@@ -17,11 +17,25 @@ router = APIRouter(prefix="/api", tags=["tracker"])
 
 
 @router.get("/tracker")
-def tracker_rows(job_id: int | None = None, user: User = Depends(require_any_user),
+def tracker_rows(job_id: int | None = None, q: str | None = None,
+                 status: str | None = None, decision: str | None = None,
+                 user: User = Depends(require_any_user),
                  db: Session = Depends(get_db)):
     query = db.query(Candidate).order_by(Candidate.id.desc())
     if job_id:
         query = query.filter(Candidate.job_id == job_id)
+    if status:
+        query = query.filter(Candidate.status == status)
+    if decision:
+        query = query.filter(Candidate.recruiter_decision == decision)
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            (Candidate.full_name.ilike(like))
+            | (Candidate.candidate_code.ilike(like))
+            | (Candidate.email.ilike(like))
+            | (Candidate.current_employer.ilike(like))
+        )
     rows = []
     for candidate in query.limit(1000).all():
         evaluation = candidate.evaluations[0] if candidate.evaluations else None

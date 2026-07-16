@@ -1,0 +1,35 @@
+# One-command private deployment.
+#   1. cp .env.example .env   and fill in the values you want
+#   2. docker compose up -d --build
+#   3. open http://<host>:8000  (or put it behind your reverse proxy + TLS)
+#
+# The app is private by default: every page requires a login, and the bootstrap
+# admin password is set below. Data persists in the named volume.
+
+services:
+  peopleiq:
+    build: .
+    image: peopleiq-recruiter-agent
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # --- required for a real deployment ---
+      PEOPLEIQ_ADMIN_PASSWORD: ${PEOPLEIQ_ADMIN_PASSWORD:?set a strong admin password in .env}
+      # --- optional: full AI screening (else deterministic fallback) ---
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PEOPLEIQ_MODEL: ${PEOPLEIQ_MODEL:-claude-opus-4-8}
+      # --- optional: real email sending (else safe draft-only) ---
+      PEOPLEIQ_EMAIL_SENDING: ${PEOPLEIQ_EMAIL_SENDING:-false}
+      PEOPLEIQ_SMTP_HOST: ${PEOPLEIQ_SMTP_HOST:-}
+      PEOPLEIQ_SMTP_PORT: ${PEOPLEIQ_SMTP_PORT:-587}
+      PEOPLEIQ_SMTP_USER: ${PEOPLEIQ_SMTP_USER:-}
+      PEOPLEIQ_SMTP_PASSWORD: ${PEOPLEIQ_SMTP_PASSWORD:-}
+      PEOPLEIQ_SMTP_FROM: ${PEOPLEIQ_SMTP_FROM:-talent@thepeopleiq.com}
+      # --- governance knobs ---
+      PEOPLEIQ_RETENTION_DAYS: ${PEOPLEIQ_RETENTION_DAYS:-365}
+    volumes:
+      - peopleiq_data:/data
+
+volumes:
+  peopleiq_data:

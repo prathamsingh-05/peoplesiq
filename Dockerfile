@@ -27,13 +27,13 @@ COPY backend/ ./backend/
 COPY --from=frontend /app/frontend/dist ./frontend/dist
 
 # Persist candidate data / uploads / db / secret across restarts.
+RUN mkdir -p /data
 VOLUME ["/data"]
 EXPOSE 8000
 
-# Run as a non-root user for safety.
-RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /data && chown -R appuser /data /app
-USER appuser
+# NOTE: the container runs as root so PaaS-attached volumes (Railway/Render
+# mount them root-owned) are always writable at /data. For self-managed Docker
+# hosts you can add a user remap at the compose/runtime level if desired.
 
 WORKDIR /app/backend
 # Respect $PORT when the host sets it (Render, Railway, Cloud Run, …); default 8000.

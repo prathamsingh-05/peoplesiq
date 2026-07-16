@@ -45,3 +45,21 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npm run build
+
+  docker-image:
+    name: Docker image builds & boots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image (same Dockerfile Railway/Render use)
+        run: docker build -t peopleiq-test .
+
+      - name: Boot the container and hit the health check
+        run: |
+          docker run -d --name piq -e PORT=8000 -e PEOPLEIQ_ADMIN_PASSWORD=ci-smoke-pass-123 -p 8000:8000 peopleiq-test
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/health; then echo; echo "healthy"; exit 0; fi
+            sleep 2
+          done
+          echo "container never became healthy"; docker logs piq; exit 1

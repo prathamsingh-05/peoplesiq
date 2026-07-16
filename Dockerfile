@@ -26,9 +26,11 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ ./backend/
 COPY --from=frontend /app/frontend/dist ./frontend/dist
 
-# Persist candidate data / uploads / db / secret across restarts.
+# Data lives under /data. No Dockerfile VOLUME declaration — Railway rejects it
+# ("use Railway Volumes"); attach persistence at the platform level instead
+# (Railway: dashboard Volume mounted at /data; docker-compose: the named volume
+# in docker-compose.yml). Without one, /data still works, just resets on redeploy.
 RUN mkdir -p /data
-VOLUME ["/data"]
 EXPOSE 8000
 
 # NOTE: the container runs as root so PaaS-attached volumes (Railway/Render

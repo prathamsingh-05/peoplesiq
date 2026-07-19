@@ -103,6 +103,11 @@ EVIDENCE RULES:
   needs_verification — a claim exists but is vague/unverifiable from the resume alone
                         (also use for location/shift/notice-period items a resume
                         rarely proves)
+- A criterion does not require an exact keyword match. If the resume demonstrates the
+  underlying capability in different words or via a closely adjacent tool/technology
+  (e.g. the criterion asks about "cloud infrastructure" and the resume shows AWS
+  work), mark it confirmed or partial on that evidence — do not mark no_evidence on a
+  pure terminology technicality when the substance is genuinely present.
 - relevant_experience_years = years in roles genuinely relevant to THIS job, computed
   from the dated work history (not the candidate's own total claim).
 - missing_information: facts the recruiter must collect (compensation, notice period, etc.).
@@ -255,9 +260,19 @@ def _reconcile_criteria(raw_results: list, scorecard: Scorecard, source_text: st
     return [seen[c.id] for c in scorecard.criteria]
 
 
+# Categories the engine itself documents as "a resume rarely proves" (see the
+# needs_verification definition in _SYSTEM below) — these belong in the call-
+# verification list, not the numeric score. A candidate isn't a worse fit
+# because their resume doesn't restate the office location or shift pattern.
+SCORE_EXCLUDED_CATEGORIES = {"location_hours"}
+
+
 def _compute_score(results: list) -> tuple[float, str]:
-    total_weight = sum(r["weight"] for r in results) or 1.0
-    earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in results)
+    scored = [r for r in results if r["category"] not in SCORE_EXCLUDED_CATEGORIES]
+    if not scored:
+        scored = results
+    total_weight = sum(r["weight"] for r in scored) or 1.0
+    earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in scored)
     score = 100.0 * earned / total_weight
 
     mandatory = [r for r in results if r["is_mandatory"]]

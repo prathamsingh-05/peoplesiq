@@ -20,9 +20,34 @@ literature and NYC LL144 / EEOC-style controls):
     result (brief §13).
 6.  Recall-biased: borderline candidates go to `recruiter_review`, never
     straight to rejection — the most expensive error is losing a strong
-    candidate.
-7.  Guardrails: a `do_not_shortlist` without an explanation is downgraded to
-    review; employment gaps and formatting can never cause rejection.
+    candidate. This is enforced at every point that can produce a negative
+    outcome, not just the score threshold:
+      - A single missing mandatory criterion routes to review, not rejection
+        — only 2+ genuine mandatory gaps auto-reject (`_recommend`).
+      - Low engine confidence or the offline fallback engine always routes
+        negatives to review instead of rejection.
+      - A `do_not_shortlist` with no explanation is never allowed through.
+7.  Requirement tiers matter, not just weight: criteria explicitly marked
+    "preferred" (nice-to-have) can only add bonus points, never subtract —
+    a candidate isn't a worse fit for lacking something the scorecard itself
+    calls optional (`BONUS_CATEGORIES`, `_compute_score`).
+8.  Structural blind spots don't count against candidates: criteria a resume
+    can categorically never prove (shift/location/notice-period fit) are
+    excluded from the numeric score entirely, not just soft-penalised —
+    otherwise every candidate loses the same fixed amount for something no
+    resume could ever answer (`SCORE_EXCLUDED_CATEGORIES`).
+9.  Partial and unverifiable evidence still counts: `needs_verification`
+    means real signal exists that just isn't fully confirmable from text
+    alone — that is far closer to a match than no evidence at all, and is
+    scored accordingly (`STATE_SCORES`).
+10. Verification catches fabrication, not phrasing: quote verification is
+    tolerant of paraphrasing/reordering/whitespace drift and only rejects a
+    quote that shares almost nothing with the actual resume text
+    (`_verify_evidence`) — it exists to catch hallucinated evidence, not to
+    punish the AI for not copying text 100% verbatim.
+11. These are enforced by `tests/test_scoring_principles.py`, not just
+    described here — a change that violates one of these rules should fail
+    that suite, on purpose.
 """
 from __future__ import annotations
 
@@ -93,6 +118,31 @@ _SYSTEM = f"""You are the screening engine of the People IQ Recruiter Agent, a
 decision-SUPPORT system. You assess one resume against an approved job scorecard.
 A human recruiter makes every final decision; your job is rigorous, evidence-linked
 analysis.
+
+Evaluate the way an experienced, senior recruiter would — someone who has read
+thousands of resumes and judges the whole picture, not a keyword scanner. A senior
+recruiter:
+- Reads the resume as a coherent career story and asks "has this person plausibly
+  done the work this criterion is asking about," not "does this exact phrase appear."
+  Someone who "built and shipped backend services handling millions of requests"
+  has demonstrated scalable-systems experience even if the resume never uses the
+  words "scalable" or "high-throughput."
+- Never decides a criterion on the presence or absence of one or two words in
+  isolation. Read the surrounding role, responsibilities, and project descriptions
+  for context before concluding there's no evidence.
+- Recognizes transferable and adjacent experience for what it is. Someone with
+  deep experience in one cloud platform, one SQL database, or one modern web
+  framework is very likely capable with a closely adjacent one — that's real
+  signal, worth "partial" at minimum, not "no_evidence" because the resume names
+  a different specific tool than the scorecard does.
+- Weighs the candidate's overall trajectory and seniority, not just line-item
+  keyword presence — a candidate whose whole career has clearly operated at or
+  above the level a criterion describes shouldn't lose credit purely because they
+  didn't spell out that exact criterion in those exact terms.
+- Is honest about genuine gaps. This is not about inflating scores — a resume
+  that truly shows nothing relevant to a criterion is still no_evidence. The goal
+  is accuracy, not leniency: an objective, whole-picture read is what avoids both
+  unfairly punishing strong candidates AND rubber-stamping weak ones.
 
 {FAIRNESS_RULES_PROMPT}
 
@@ -201,19 +251,32 @@ def _normalise_for_match(text: str) -> str:
 
 
 def _verify_evidence(evidence: str, source: str) -> bool:
-    """A quote counts as verified when it (or 80% of its 5-word shingles)
-    appears in the source text — tolerant of whitespace/punctuation drift."""
+    """A quote counts as verified when it's a close match to resume text —
+    exact substring, or close enough (by word overlap) that it clearly
+    reflects real content rather than a fabricated claim. Deliberately
+    order-independent and tolerant of minor rewording, dropped filler words,
+    or whitespace/punctuation drift: this check exists to catch genuine
+    hallucination (a "quote" that shares almost nothing with the actual
+    resume), not to penalise the AI for not copying text 100% verbatim.
+
+    A contiguous n-gram ("shingle") match was tried first, but a single
+    dropped or reordered filler word (e.g. paraphrasing "Python and AWS" as
+    "Python, AWS") shifts every subsequent shingle out of alignment and
+    fails the whole check even though the evidence is clearly genuine — so
+    this uses plain word-set overlap instead, which doesn't care about order
+    or position at all.
+    """
     if not evidence:
         return False
     ev, src = _normalise_for_match(evidence), _normalise_for_match(source)
     if ev in src:
         return True
     words = ev.split()
-    if len(words) < 5:
+    if not words:
         return False
-    shingles = [" ".join(words[i:i + 5]) for i in range(len(words) - 4)]
-    hits = sum(1 for s in shingles if s in src)
-    return hits / len(shingles) >= 0.8
+    src_words = set(src.split())
+    hits = sum(1 for w in words if w in src_words)
+    return hits / len(words) >= 0.7
 
 
 def _reconcile_criteria(raw_results: list, scorecard: Scorecard, source_text: str) -> list:

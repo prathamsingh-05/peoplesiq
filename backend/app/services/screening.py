@@ -37,10 +37,15 @@ from .fairness import FAIRNESS_RULES_PROMPT
 EVIDENCE_STATES = ["confirmed", "partial", "no_evidence", "contradictory", "needs_verification"]
 
 # Score contribution of each evidence state (fraction of criterion weight).
+# needs_verification means a real claim exists in the resume but can't be
+# fully confirmed from text alone (e.g. "led backend development" for a
+# criterion asking specifically about API design) — that's meaningfully
+# different from no_evidence (nothing addresses it at all), so it earns real
+# partial credit rather than being scored almost the same as a total gap.
 STATE_SCORES = {
     "confirmed": 1.0,
     "partial": 0.55,
-    "needs_verification": 0.35,
+    "needs_verification": 0.5,
     "no_evidence": 0.0,
     "contradictory": 0.0,
 }
@@ -266,14 +271,30 @@ def _reconcile_criteria(raw_results: list, scorecard: Scorecard, source_text: st
 # because their resume doesn't restate the office location or shift pattern.
 SCORE_EXCLUDED_CATEGORIES = {"location_hours"}
 
+# "preferred" criteria are nice-to-haves by definition (the scorecard prompt
+# calls them that explicitly). A real recruiter doesn't mark someone down for
+# lacking a nice-to-have — they get extra credit for having one. So preferred
+# criteria are scored separately and can only add to the core score, never
+# subtract from it, capped so they can't outweigh the actual requirements.
+BONUS_CATEGORIES = {"preferred"}
+MAX_BONUS_POINTS = 10.0
+
 
 def _compute_score(results: list) -> tuple[float, str]:
-    scored = [r for r in results if r["category"] not in SCORE_EXCLUDED_CATEGORIES]
-    if not scored:
-        scored = results
-    total_weight = sum(r["weight"] for r in scored) or 1.0
-    earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in scored)
+    core = [r for r in results
+            if r["category"] not in SCORE_EXCLUDED_CATEGORIES
+            and r["category"] not in BONUS_CATEGORIES]
+    if not core:
+        core = [r for r in results if r["category"] not in SCORE_EXCLUDED_CATEGORIES] or results
+    total_weight = sum(r["weight"] for r in core) or 1.0
+    earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in core)
     score = 100.0 * earned / total_weight
+
+    bonus = [r for r in results if r["category"] in BONUS_CATEGORIES]
+    bonus_weight = sum(r["weight"] for r in bonus)
+    if bonus_weight:
+        bonus_earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in bonus)
+        score = min(100.0, score + MAX_BONUS_POINTS * bonus_earned / bonus_weight)
 
     mandatory = [r for r in results if r["is_mandatory"]]
     if not mandatory:
@@ -295,10 +316,25 @@ def _recommend(score: float, mandatory_status: str, results: list, raw: dict,
     if mandatory_status == "not_met":
         failed = [r["name"] for r in results
                   if r["is_mandatory"] and r["status"] in ("no_evidence", "contradictory")]
-        recommendation = "do_not_shortlist"
-        reasons.append(
-            "Mandatory criteria without supporting evidence: " + "; ".join(failed) + "."
-        )
+        # Recall bias applies here too: one missing mandatory item is often a
+        # resume that just didn't spell it out, not proof the candidate lacks
+        # it — that's exactly what the screening call is for. Only route
+        # straight to rejection when the resume fails on multiple genuine
+        # knock-outs at once, which is a much stronger signal of poor fit.
+        if len(failed) >= 2:
+            recommendation = "do_not_shortlist"
+            reasons.append(
+                "Multiple mandatory criteria without supporting evidence: "
+                + "; ".join(failed) + "."
+            )
+        else:
+            recommendation = "recruiter_review"
+            reasons.append(
+                f"One mandatory criterion isn't confirmed by the resume text ({failed[0]}). "
+                "Routed to recruiter review rather than automatic rejection — a single gap "
+                "may reflect incomplete resume detail rather than an actual mismatch; verify "
+                "on the call."
+            )
     elif score >= SHORTLIST_THRESHOLD and mandatory_status == "met":
         recommendation = "shortlist"
         confirmed = [r["name"] for r in results if r["status"] == "confirmed"][:5]

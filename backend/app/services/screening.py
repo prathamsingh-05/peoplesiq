@@ -445,6 +445,88 @@ def _recommend(score: float, mandatory_status: str, results: list, raw: dict,
 
 
 # ---------------------------------------------------------------------------
+# Plain-language decision guidance
+#
+# Everything above this line produces an accurate result; nothing about it
+# requires a recruiter to understand evidence states, weights, or what
+# "mandatory_status: partially_met" means. This translates that result into
+# what a recruiter with no technical background actually needs: a clear
+# headline, why in plain English, and what to do next. It's computed from
+# the same evaluate() output already produced — not a separate AI call — so
+# it can never disagree with the score/recommendation it's explaining.
+# ---------------------------------------------------------------------------
+def build_recruiter_guidance(
+    *, recommendation: str, score: float, mandatory_status: str,
+    key_strengths: list, gaps: list, verification_questions: list,
+    criterion_results: list,
+) -> dict:
+    unclear = [r["name"] for r in (criterion_results or [])
+               if r.get("status") == "needs_verification"]
+    to_check = (verification_questions or unclear or gaps or [])[:3]
+
+    if recommendation == "shortlist":
+        return {
+            "tone": "good",
+            "headline": "Strong match — recommended to shortlist",
+            "reason_in_plain_english": (
+                "This resume clearly shows what the role needs, and everything on "
+                "your must-have list is backed up by the resume."
+            ),
+            "next_step": "Move forward with a screening call.",
+            "top_strengths": (key_strengths or [])[:3],
+            "things_to_check_on_the_call": to_check,
+        }
+    if recommendation == "recruiter_review":
+        if mandatory_status == "not_met":
+            reason = (
+                "Most of this looks like a real fit, but one thing on your must-have "
+                "list isn't spelled out in the resume. That's often just a gap in how "
+                "the resume is written, not proof the candidate lacks it — worth "
+                "checking before you decide either way."
+            )
+        else:
+            reason = (
+                "There's real strength here, but a few things aren't fully confirmed "
+                "by the resume alone. Use the call to fill in the blanks below before "
+                "you decide."
+            )
+        return {
+            "tone": "review",
+            "headline": "Worth a closer look before deciding",
+            "reason_in_plain_english": reason,
+            "next_step": "Read the strengths and open questions below, then decide.",
+            "top_strengths": (key_strengths or [])[:3],
+            "things_to_check_on_the_call": to_check,
+        }
+    return {
+        "tone": "poor",
+        "headline": "Not a fit for this role, based on the resume",
+        "reason_in_plain_english": (
+            "The resume doesn't show what this role needs. If you know something "
+            "about this candidate the resume doesn't show, trust your judgement — "
+            "you can still shortlist them manually."
+        ),
+        "next_step": "Pass, unless you have outside knowledge of this candidate.",
+        "top_strengths": (key_strengths or [])[:3],
+        "things_to_check_on_the_call": to_check,
+    }
+
+
+def guidance_for_evaluation(evaluation: Evaluation) -> dict:
+    """Convenience wrapper so callers don't need to know the field names
+    build_recruiter_guidance expects — just pass a stored Evaluation row."""
+    return build_recruiter_guidance(
+        recommendation=evaluation.recommendation,
+        score=evaluation.overall_score,
+        mandatory_status=evaluation.mandatory_status,
+        key_strengths=evaluation.key_strengths or [],
+        gaps=evaluation.gaps or [],
+        verification_questions=evaluation.verification_questions or [],
+        criterion_results=evaluation.criterion_results or [],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Deterministic fallback engine (no API key / API outage)
 # ---------------------------------------------------------------------------
 def _deterministic_evaluate(text: str, scorecard: Scorecard) -> dict:
@@ -506,6 +588,7 @@ def leaderboard_row(evaluation: Evaluation, rank: int, candidate) -> dict:
         "risk_flags": evaluation.risk_flags,
         "recommendation": evaluation.recommendation,
         "confidence": evaluation.confidence,
+        "recruiter_guidance": guidance_for_evaluation(evaluation),
         "evidence": [
             {"criterion": r["name"], "status": r["status"], "evidence": r["evidence"]}
             for r in evaluation.criterion_results

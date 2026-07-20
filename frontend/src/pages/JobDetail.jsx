@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, downloadFile } from '../api.js'
-import { Alert, Badge, Score, fmtDate, useAsync } from '../components.jsx'
+import { Alert, Badge, GuidanceChip, Score, fmtDate, useAsync } from '../components.jsx'
 
 export default function JobDetail() {
   const { jobId } = useParams()
@@ -301,7 +301,7 @@ function LeaderboardTab({ jobId, hasScorecard }) {
       {board.loading ? <p>Loading…</p> : (
         <table className="data">
           <thead><tr>
-            <th></th><th>#</th><th>Candidate</th><th>Match</th><th>Mandatory</th><th>Rel. exp</th>
+            <th></th><th>#</th><th>Candidate</th><th>Guidance</th><th>Match</th><th>Mandatory</th><th>Rel. exp</th>
             <th>Key strengths</th><th>Gaps</th><th>Risk flags</th>
             <th>AI recommendation</th><th>Confidence</th><th>Recruiter decision</th>
           </tr></thead>
@@ -317,6 +317,7 @@ function LeaderboardTab({ jobId, hasScorecard }) {
                   <div className="small muted">{row.candidate_code}</div>
                   {row.flagged_for_review && <Badge value="pending_review" />}
                 </td>
+                <td><GuidanceChip guidance={row.recruiter_guidance} /></td>
                 <td><Score value={row.overall_match} /></td>
                 <td><Badge value={row.mandatory_criteria} /></td>
                 <td>{row.relevant_experience_years} y</td>
@@ -329,7 +330,7 @@ function LeaderboardTab({ jobId, hasScorecard }) {
               </tr>
             ))}
             {board.data.length === 0 && (
-              <tr><td colSpan={12} className="muted">No screened candidates yet — upload resumes and run screening.</td></tr>
+              <tr><td colSpan={13} className="muted">No screened candidates yet — upload resumes and run screening.</td></tr>
             )}
           </tbody>
         </table>

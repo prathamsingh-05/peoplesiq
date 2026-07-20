@@ -68,8 +68,24 @@ function AssessmentTab({ candidateId }) {
     ? <ul className="clean">{items.map((x, i) => <li key={i}>{x}</li>)}</ul>
     : <span className="muted">None identified</span>
 
+  const g = ev.recruiter_guidance
+
   return (
     <div>
+      {g && (
+        <div className={`guidance-banner ${g.tone}`}>
+          <h2>{g.headline}</h2>
+          <p>{g.reason_in_plain_english}</p>
+          {g.top_strengths?.length > 0 && (
+            <p><b>What stands out:</b> {g.top_strengths.join(' · ')}</p>
+          )}
+          {g.things_to_check_on_the_call?.length > 0 && (
+            <p><b>Check on the call:</b> {g.things_to_check_on_the_call.join(' · ')}</p>
+          )}
+          <p className="next-step">Next step: {g.next_step}</p>
+        </div>
+      )}
+
       <div className="card">
         <div className="row between">
           <h2>Executive summary</h2>

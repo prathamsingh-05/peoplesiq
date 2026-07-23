@@ -95,7 +95,19 @@ literature and NYC LL144 / EEOC-style controls):
     criterion should reflect how the JD itself framed that skill (essential
     vs preferred), not be applied uniformly (`scorecard.py`'s TECHNICAL SKILL
     WEIGHTING RULE, `_token_variants`).
-17. These are enforced by `tests/test_scoring_principles.py`, not just
+17. Read for meaning, never for keyword presence, and never score how a
+    resume is *written*. Every bullet, sentence and paragraph is judged for
+    what it actually says about the work — scope, outcome, ownership — not
+    whether it contains a criterion's exact vocabulary; a lot of what matters
+    about a candidate is implied rather than spelled out, and that implied
+    meaning is real evidence, grounded in what the resume actually describes
+    (not invented). Symmetrically, resume-writing polish, buzzword density,
+    or fluent/native-sounding phrasing must never itself raise a score, and
+    plain, simply-worded, or non-native-English phrasing describing
+    substantial real work must never itself lower one — scoring how well
+    someone writes instead of what they did would punish candidates for
+    something that has nothing to do with the job.
+18. These are enforced by `tests/test_scoring_principles.py`, not just
     described here — a change that violates one of these rules should fail
     that suite, on purpose.
 """
@@ -184,8 +196,12 @@ HOW TO APPROACH EVERY ASSESSMENT, IN ORDER:
    not an idealised candidate for some other, more senior or better-paid role.
 2. Then read the entire resume once, start to finish, as a single coherent
    professional profile — the arc of the person's career, what they've actually
-   built and owned, how their responsibilities grew. Form your overall_impression
-   from this whole-profile read, before you touch the criterion-by-criterion list.
+   built and owned, how their responsibilities grew. Read every bullet, sentence
+   and paragraph for what it actually means, not for whether it contains
+   particular words — a lot of what matters about a candidate is implied rather
+   than spelled out, and understanding that is part of this read, not an
+   afterthought. Form your overall_impression from this whole-profile read,
+   before you touch the criterion-by-criterion list.
 3. Only then assess each individual criterion, using both the role-understanding
    from step 1 and the whole-profile read from step 2 as context — never judge a
    criterion, or the resume, in isolation from what the role actually needs and who
@@ -215,6 +231,32 @@ recruiter:
   that truly shows nothing relevant to a criterion is still no_evidence. The goal
   is accuracy, not leniency: an objective, whole-picture read is what avoids both
   unfairly punishing strong candidates AND rubber-stamping weak ones.
+
+READ FOR MEANING, NOT KEYWORDS — apply this to every sentence, not only technical
+skills. A resume almost never states things in a criterion's exact words, and a lot
+of what matters about a candidate is implied rather than spelled out:
+- For every bullet, sentence, or paragraph, understand what it is actually saying
+  about the scope of the work, the outcome, and the capability it demonstrates —
+  then judge criteria against that understanding, not against whether particular
+  words appear. "Reduced deployment time from 2 hours to 10 minutes" implies CI/CD
+  and automation competence even though neither word appears. "Owned the migration
+  of the billing system to a new provider" implies both technical depth and
+  independent ownership. "Coordinated with 4 other teams to ship the release"
+  implies cross-team communication even if "stakeholder management" is never
+  written. Read for what these statements mean, not for their vocabulary.
+- This inference must stay grounded in what the resume actually describes — read
+  between the lines of real statements, never invent achievements the resume
+  doesn't mention. If nothing in the resume, read for meaning or not, actually
+  supports a criterion, that is still no_evidence — this is about accurate
+  understanding, not generosity.
+- SCORE THE SUBSTANCE, NEVER THE WRITING. A candidate's score must reflect what
+  they actually did, not how impressively, fluently, or "professionally" their
+  resume describes it. A plainly-worded resume describing real, substantial work
+  must score at least as well as a polished, buzzword-heavy resume describing
+  equivalent substance — and confident, native-sounding, or jargon-heavy phrasing
+  must never itself read as more qualified than plain phrasing describing the same
+  work. Scoring resume-writing polish or English fluency instead of the job itself
+  would penalise candidates for something that has nothing to do with the role.
 
 JUDGE THE PERSON, NOT 1-2 WORDS — this is the single most important instruction
 in this prompt. Every per-criterion status is a means to an end: understanding

@@ -113,6 +113,14 @@ class Job(Base):
     candidates: Mapped[list["Candidate"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
+    # ProcessingLog has no back_populates (nothing needs to navigate job ->
+    # logs in Python today) but still needs a cascade here: a row is written
+    # on every upload and every screening event, so every real job has some,
+    # and with PRAGMA foreign_keys=ON, deleting a job whose logs aren't
+    # cascaded raises "FOREIGN KEY constraint failed" instead of deleting.
+    processing_logs: Mapped[list["ProcessingLog"]] = relationship(
+        cascade="all, delete-orphan"
+    )
 
 
 class ScorecardStatus(str, enum.Enum):

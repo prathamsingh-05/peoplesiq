@@ -15,9 +15,15 @@ literature and NYC LL144 / EEOC-style controls):
     0-100 score is computed *in code* from criterion states and scorecard
     weights, so identical inputs always produce identical scores and no
     criterion can be silently ignored.
-5.  Consistency: results are cached by sha256(redacted_text + scorecard), so
-    re-screening the same resume against the same scorecard returns the same
-    result (brief §13).
+5.  Consistency for automatic screening, freshness on request: results are
+    cached by sha256(redacted_text + scorecard + job calibration context), so
+    the automatic "screen pending resumes" batch is idempotent — retrying it
+    never produces a different score for a candidate it already looked at
+    (brief §13). An explicit recruiter "rescreen" action (single-candidate or
+    bulk rescreen-all) is a different kind of request — a genuine ask for a
+    fresh look, not idempotency — so it always bypasses this cache and
+    re-runs the full evaluation, even when nothing about the input has
+    technically changed (`routers/screening.py`: `_screen_one(..., force=True)`).
 6.  Recall-biased: borderline candidates go to `recruiter_review`, never
     straight to rejection — the most expensive error is losing a strong
     candidate. This is enforced at every point that can produce a negative
@@ -170,6 +176,21 @@ decision-SUPPORT system. You assess one resume against an approved job scorecard
 A human recruiter makes every final decision; your job is rigorous, evidence-linked
 analysis.
 
+HOW TO APPROACH EVERY ASSESSMENT, IN ORDER:
+1. First, fully understand the role before looking at the resume at all: what level
+   is this (seniority tier, pay band, "good enough" description if given), what does
+   it actually need (the scorecard criteria and their weights/mandatory flags), and
+   what would a realistic, appropriate candidate for THIS specific role look like —
+   not an idealised candidate for some other, more senior or better-paid role.
+2. Then read the entire resume once, start to finish, as a single coherent
+   professional profile — the arc of the person's career, what they've actually
+   built and owned, how their responsibilities grew. Form your overall_impression
+   from this whole-profile read, before you touch the criterion-by-criterion list.
+3. Only then assess each individual criterion, using both the role-understanding
+   from step 1 and the whole-profile read from step 2 as context — never judge a
+   criterion, or the resume, in isolation from what the role actually needs and who
+   this person actually is.
+
 Evaluate the way an experienced, senior recruiter would — someone who has read
 thousands of resumes and judges the whole picture, not a keyword scanner. A senior
 recruiter:
@@ -240,6 +261,16 @@ details below state a seniority tier, compensation band, or a description of wha
   the actual criteria — over-qualification on paper is not itself confirmation of
   fit, and under-qualification relative to a lower-paying, lower-seniority role is
   not itself a gap.
+- Concretely: a candidate who is solidly, averagely qualified — not a standout, not
+  underqualified either — applying to a role paying roughly entry-level compensation
+  (in the Indian market, think under ~8 LPA) IS a good fit for that role. That is the
+  exact profile a role at that pay band should attract and is happy to get. Do not
+  read "mid-qualified" as a shortfall against some imagined better candidate the
+  budget was never going to attract in the first place.
+- If the seniority tier label and the compensation band context seem to point in
+  different directions, weigh the compensation band more heavily — pay is the more
+  concrete, objective fact about what this role realistically needs and will
+  attract, whereas a tier label is a human's rough categorisation and can be off.
 - calibration_notes: 2-4 sentences stating, in plain language, what depth/level you
   calibrated your judgement to for THIS role (referencing tier/pay-band/"good
   enough" context when given) and how that shaped your read of the evidence. This
@@ -360,6 +391,59 @@ SENIORITY_GUIDANCE = {
 }
 
 
+def _parse_lpa(comp: str) -> float | None:
+    """Best-effort read of a representative annual-compensation figure, in
+    Indian LPA/lakh terms, out of free text like "₹6-8 LPA", "12-16 lakh", or
+    "6.5 LPA" — the midpoint of a range, or the single figure. Returns None
+    when nothing plausible is found (e.g. empty, or figures written as full
+    rupee amounts rather than lakhs) rather than guessing wrong."""
+    if not comp:
+        return None
+    numbers = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", comp)]
+    # Indian tech/IT-services compensation is realistically 1-200 LPA; a
+    # number outside that (e.g. a stray year, or rupees instead of lakhs)
+    # isn't a usable signal here.
+    plausible = [n for n in numbers if 1 <= n <= 200][:2]
+    if not plausible:
+        return None
+    return sum(plausible) / len(plausible)
+
+
+# Concrete Indian-market compensation bands mapped to realistic depth
+# expectations, so calibration works even when a job has no explicit
+# seniority_tier chosen — and so a recruiter's rough tier label doesn't
+# silently override what the pay itself says about the role (see the
+# ROLE-LEVEL CALIBRATION "weigh the compensation band more heavily" rule).
+def _lpa_band_guidance(comp: str) -> str:
+    value = _parse_lpa(comp)
+    if value is None:
+        return ""
+    if value < 8:
+        return (
+            "This is entry/junior-level compensation for the Indian market. A solidly, "
+            "averagely qualified candidate — not a standout — is a GOOD fit here, not a "
+            "shortfall; this role was never going to attract, and doesn't need, an "
+            "elite or highly experienced candidate."
+        )
+    if value < 15:
+        return (
+            "This is early-to-mid-level compensation for the Indian market. Expect solid, "
+            "reasonably independent contributors — not necessarily deep specialists or "
+            "people who've owned systems at real scale."
+        )
+    if value < 25:
+        return (
+            "This is senior-level compensation for the Indian market. Expect real "
+            "ownership and depth — a thin or generic resume is a genuine gap at this "
+            "pay level, not something to wave through."
+        )
+    return (
+        "This is lead/staff/principal-level compensation for the Indian market. Expect "
+        "scope beyond individual delivery — technical direction, mentorship, or "
+        "ownership across a team or system."
+    )
+
+
 def _calibration_block(job) -> str:
     """Builds the role-level calibration context from job fields, when present.
     Pure/deterministic (no LLM call) so it's directly unit-testable — see
@@ -370,11 +454,13 @@ def _calibration_block(job) -> str:
         lines.append(f"Seniority tier: {tier.replace('_', ' ')}. {SENIORITY_GUIDANCE[tier]}")
     comp = (getattr(job, "compensation_range", "") or "").strip()
     if comp:
+        band_note = _lpa_band_guidance(comp)
         lines.append(
             f"Compensation band for this role: {comp}. Calibrate expected technical "
             "depth to what a role actually paying this typically requires — do not "
             "expect elite/top-tier-company depth on a modest budget, and do not "
             "under-credit genuine depth on a senior budget."
+            + (f" {band_note}" if band_note else "")
         )
     good_enough = (getattr(job, "good_enough_note", "") or "").strip()
     if good_enough:

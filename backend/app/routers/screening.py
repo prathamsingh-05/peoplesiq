@@ -121,7 +121,7 @@ def _has_current_eval(candidate: Candidate, scorecard: Scorecard) -> bool:
 
 
 def _screen_batch(job_id: int, scorecard_id: int, candidate_ids: list[int],
-                  batch_id: str) -> None:
+                  batch_id: str, force: bool = False) -> None:
     """Worker thread: one DB session, one candidate at a time; API failures on a
     single resume never abort the batch."""
     db = SessionLocal()
@@ -132,7 +132,7 @@ def _screen_batch(job_id: int, scorecard_id: int, candidate_ids: list[int],
         for cid in candidate_ids:
             candidate = db.get(Candidate, cid)
             try:
-                _screen_one(db, candidate, scorecard, job, batch_id)
+                _screen_one(db, candidate, scorecard, job, batch_id, force=force)
                 progress["done"] += 1
             except Exception as exc:  # noqa: BLE001
                 db.rollback()
@@ -150,13 +150,19 @@ def _screen_batch(job_id: int, scorecard_id: int, candidate_ids: list[int],
 
 
 def _screen_one(db: Session, candidate: Candidate, scorecard: Scorecard,
-                job: Job, batch_id: str) -> Evaluation:
+                job: Job, batch_id: str, force: bool = False) -> Evaluation:
     text = candidate.redacted_text or candidate.resume_text
     ihash = engine.input_hash(text, scorecard, job)
 
     # Consistency guarantee: identical resume + scorecard + job calibration
-    # context → reuse the result.
-    cached = (
+    # context → reuse the result — for the automatic "screen pending" flow,
+    # where idempotency matters more than a fresh read. An explicit recruiter
+    # "rescreen" action (force=True) is a request for a genuine fresh look,
+    # not idempotency — a recruiter clicking rescreen and getting the exact
+    # same cached judgement back, even after the engine itself has improved,
+    # would look like nothing happened at all. See scoring principle 14 (judge
+    # the whole person) and the docstring's consistency principle (5).
+    cached = None if force else (
         db.query(Evaluation)
         .filter(Evaluation.input_hash == ihash, Evaluation.candidate_id == candidate.id)
         .first()
@@ -223,7 +229,8 @@ def rescreen_candidate(candidate_id: int, request: Request,
         raise HTTPException(status_code=404, detail="Candidate not found")
     job = candidate.job
     scorecard = _approved_scorecard(db, job)
-    evaluation = _screen_one(db, candidate, scorecard, job, batch_id="manual-" + str(uuid.uuid4())[:8])
+    evaluation = _screen_one(db, candidate, scorecard, job,
+                             batch_id="manual-" + str(uuid.uuid4())[:8], force=True)
     log_action(db, "screening.rescreened", user=user, entity_type="candidate",
                entity_id=candidate.id, ip=client_ip(request), commit=True)
     return _evaluation_out(evaluation)
@@ -234,12 +241,12 @@ def rescreen_all_candidates(job_id: int, request: Request,
                             user: User = Depends(require_recruiter),
                             db: Session = Depends(get_db)):
     """Re-runs every already-processed candidate on this job against the
-    current approved scorecard — for use after editing scorecard weights or
-    criteria, so the whole leaderboard reflects the corrected scorecard
-    instead of a mix of old and new evaluations. Identical resume + scorecard
-    + job-calibration inputs still hit the consistency cache (brief §13); this
-    only forces candidates that were skipped by the "pending only" batch
-    screen to be picked up again."""
+    current approved scorecard — a genuine fresh re-analysis for each
+    candidate, not a replay of a cached score. This is an explicit recruiter
+    request for a new look (after editing scorecard weights/criteria, after
+    an engine/prompt improvement, or just to double-check), so it always
+    bypasses the consistency cache (unlike the automatic "screen pending"
+    batch, which intentionally reuses cached results for idempotency)."""
     job = db.get(Job, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -269,6 +276,7 @@ def rescreen_all_candidates(job_id: int, request: Request,
 
     thread = threading.Thread(
         target=_screen_batch, args=(job_id, scorecard.id, candidate_ids, batch_id),
+        kwargs={"force": True},
         daemon=True,
     )
     thread.start()

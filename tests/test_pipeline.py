@@ -125,6 +125,10 @@ def test_full_pipeline(auth_client):
     # criteria aren't clearly failed — recall bias.
     assert weak_row["recommendation"] in ("recruiter_review", "do_not_shortlist")
 
+    pool = client.get(f"/api/jobs/{job_id}/pool-insight").json()
+    assert pool["pool_size"] == 2
+    assert pool["headline"]
+
     strong_id = strong_row["candidate_id"]
 
     # --- Stage 5: assessment with evidence -----------------------------------

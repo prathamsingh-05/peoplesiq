@@ -253,9 +253,17 @@ function UploadTab({ jobId, hasScorecard }) {
   )
 }
 
+function _poolInsightTone(headline) {
+  const h = (headline || '').toLowerCase()
+  if (h.includes('strong')) return 'success'
+  if (h.includes('weak') || h.includes('missing the same')) return 'warn'
+  return 'info'
+}
+
 // ---------------------------------------------------------------------------
 function LeaderboardTab({ jobId, hasScorecard }) {
   const board = useAsync(() => api.get(`/api/jobs/${jobId}/leaderboard`), [jobId])
+  const insight = useAsync(() => api.get(`/api/jobs/${jobId}/pool-insight`), [jobId])
   const [progress, setProgress] = useState(null)
   const [error, setError] = useState('')
   const timer = useRef()
@@ -264,7 +272,7 @@ function LeaderboardTab({ jobId, hasScorecard }) {
     api.get(`/api/jobs/${jobId}/screen/status`).then((s) => {
       setProgress(s)
       if (s.running) timer.current = setTimeout(poll, 2000)
-      else board.reload()
+      else { board.reload(); insight.reload() }
     })
   }
   useEffect(() => () => clearTimeout(timer.current), [])
@@ -325,6 +333,11 @@ function LeaderboardTab({ jobId, hasScorecard }) {
       </div>
       {!hasScorecard && <Alert kind="info">Approve the scorecard first (tab 1).</Alert>}
       <Alert kind="error" onClose={() => setError('')}>{error}</Alert>
+      {insight.data && insight.data.pool_size > 0 && (
+        <Alert kind={_poolInsightTone(insight.data.headline)}>
+          <b>{insight.data.headline}.</b> {insight.data.note}
+        </Alert>
+      )}
       {progress?.running && (
         <div style={{ marginBottom: 12 }}>
           <div className="progressbar">

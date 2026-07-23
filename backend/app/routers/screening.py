@@ -301,6 +301,19 @@ def leaderboard(job_id: int, user: User = Depends(require_any_user),
     return [engine.leaderboard_row(e, rank, c) for rank, (e, c) in enumerate(rows, start=1)]
 
 
+@router.get("/jobs/{job_id}/pool-insight")
+def get_pool_insight(job_id: int, user: User = Depends(require_any_user),
+                     db: Session = Depends(get_db)):
+    """A recruiter reading through a batch of resumes forms an opinion about
+    the pool as a whole, not just each candidate in isolation — this is that
+    read, computed deterministically from the job's stored evaluations."""
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    evaluations = [c.evaluations[0] for c in job.candidates if c.evaluations]
+    return engine.pool_insight(evaluations)
+
+
 # ---------------------------------------------------------------------------
 # Stage 5 — Individual assessment + recruiter decision (HITL gate #2)
 # ---------------------------------------------------------------------------

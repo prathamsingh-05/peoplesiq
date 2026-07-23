@@ -107,7 +107,20 @@ literature and NYC LL144 / EEOC-style controls):
     substantial real work must never itself lower one — scoring how well
     someone writes instead of what they did would punish candidates for
     something that has nothing to do with the job.
-18. These are enforced by `tests/test_scoring_principles.py`, not just
+18. A borderline recommendation comes with a specific next step, not just a
+    category label: for recruiter_review candidates below the shortlist
+    threshold, the engine computes exactly how many points they're short and
+    which not-yet-confirmed criteria would close the most ground if verified
+    on the call — deterministic, reusing `_compute_score`'s own weighting, so
+    it can never disagree with the real score (`_closing_the_gap`).
+19. The pool is judged, not just each candidate in isolation: a recruiter
+    reading through a batch of resumes forms an opinion about the search
+    itself — is this a strong pool, and is the bar realistic for what's
+    actually applying. When most of the pool fails the exact same criterion,
+    that's a signal to question the requirement, not proof every candidate
+    individually is weak. Computed deterministically from stored evaluations,
+    no extra AI call (`pool_insight`).
+20. These are enforced by `tests/test_scoring_principles.py`, not just
     described here — a change that violates one of these rules should fail
     that suite, on purpose.
 """
@@ -959,6 +972,30 @@ def _recommend(score: float, mandatory_status: str, results: list, raw: dict,
 # the same evaluate() output already produced — not a separate AI call — so
 # it can never disagree with the score/recommendation it's explaining.
 # ---------------------------------------------------------------------------
+def _closing_the_gap(score: float, results: list) -> tuple[float, list[dict]]:
+    """For a borderline candidate, ranks the not-yet-confirmed criteria by how
+    many score points confirming them on the call would actually add — turns
+    "worth a closer look" into a specific, actionable next step instead of a
+    vague "review more." Reuses _compute_score's exact weighting, so the
+    numbers shown to the recruiter can never drift out of sync with the real
+    score."""
+    if score >= SHORTLIST_THRESHOLD or not results:
+        return 0.0, []
+    points_needed = round(SHORTLIST_THRESHOLD - score, 1)
+    candidates = []
+    for i, r in enumerate(results):
+        if r["status"] == "confirmed" or r["category"] in SCORE_EXCLUDED_CATEGORIES:
+            continue
+        hypothetical = list(results)
+        hypothetical[i] = {**r, "status": "confirmed"}
+        new_score, _ = _compute_score(hypothetical)
+        delta = new_score - score
+        if delta > 0.5:
+            candidates.append({"criterion": r["name"], "points": round(delta, 1)})
+    candidates.sort(key=lambda c: c["points"], reverse=True)
+    return points_needed, candidates[:3]
+
+
 def build_recruiter_guidance(
     *, recommendation: str, score: float, mandatory_status: str,
     key_strengths: list, gaps: list, verification_questions: list,
@@ -968,6 +1005,7 @@ def build_recruiter_guidance(
                if r.get("status") == "needs_verification"]
     to_check = (verification_questions or unclear or gaps or [])[:3]
     level_context = calibration_notes or ""
+    points_needed, closing_the_gap = _closing_the_gap(score, criterion_results or [])
 
     if recommendation == "shortlist":
         return {
@@ -981,6 +1019,8 @@ def build_recruiter_guidance(
             "top_strengths": (key_strengths or [])[:3],
             "things_to_check_on_the_call": to_check,
             "level_context": level_context,
+            "points_to_shortlist": 0.0,
+            "closing_the_gap": [],
         }
     if recommendation == "recruiter_review":
         if mandatory_status == "not_met":
@@ -996,6 +1036,12 @@ def build_recruiter_guidance(
                 "by the resume alone. Use the call to fill in the blanks below before "
                 "you decide."
             )
+        if closing_the_gap:
+            reason += (
+                f" They're about {points_needed:.0f} points off the shortlist bar — "
+                "confirming " + ", ".join(c["criterion"] for c in closing_the_gap) +
+                " on the call would likely close most or all of that gap."
+            )
         return {
             "tone": "review",
             "headline": "Worth a closer look before deciding",
@@ -1004,6 +1050,8 @@ def build_recruiter_guidance(
             "top_strengths": (key_strengths or [])[:3],
             "things_to_check_on_the_call": to_check,
             "level_context": level_context,
+            "points_to_shortlist": points_needed,
+            "closing_the_gap": closing_the_gap,
         }
     return {
         "tone": "poor",
@@ -1017,6 +1065,8 @@ def build_recruiter_guidance(
         "top_strengths": (key_strengths or [])[:3],
         "things_to_check_on_the_call": to_check,
         "level_context": level_context,
+        "points_to_shortlist": 0.0,
+        "closing_the_gap": [],
     }
 
 
@@ -1132,4 +1182,67 @@ def leaderboard_row(evaluation: Evaluation, rank: int, candidate) -> dict:
         "recruiter_decision": candidate.recruiter_decision,
         "status": candidate.status,
         "flagged_for_review": candidate.flagged_for_review,
+    }
+
+
+def pool_insight(evaluations: list) -> dict:
+    """A deterministic, pool-level read across every evaluated candidate on a
+    job — the thing an experienced recruiter forms after reading through a
+    batch of resumes, not just candidate-by-candidate: is this a strong
+    pool, and is the bar itself realistic for what's actually applying?
+    Computed purely from already-stored evaluation data, no extra AI call —
+    so it's free and instant, and can never contradict the individual
+    evaluations it's summarizing."""
+    n = len(evaluations)
+    if n == 0:
+        return {
+            "pool_size": 0, "shortlist_count": 0, "review_count": 0, "reject_count": 0,
+            "average_score": None, "headline": "No candidates screened yet",
+            "note": "Screen some resumes to see a read on this pool.", "common_gap": None,
+        }
+
+    shortlist = sum(1 for e in evaluations if e.recommendation == "shortlist")
+    review = sum(1 for e in evaluations if e.recommendation == "recruiter_review")
+    reject = sum(1 for e in evaluations if e.recommendation == "do_not_shortlist")
+    avg_score = sum(e.overall_score for e in evaluations) / n
+
+    # If most of the pool fails the exact same criterion, that's a signal
+    # about the requirement/market mismatch — not that every candidate
+    # individually happens to be weak in the same specific spot.
+    fail_counts: dict[str, int] = {}
+    for e in evaluations:
+        for r in (e.criterion_results or []):
+            if r.get("status") in ("no_evidence", "contradictory"):
+                fail_counts[r["name"]] = fail_counts.get(r["name"], 0) + 1
+    common_gap = None
+    if fail_counts and n >= 3:
+        name, count = max(fail_counts.items(), key=lambda kv: kv[1])
+        if count / n >= 0.6:
+            common_gap = {"criterion": name, "fraction": round(count / n, 2)}
+
+    if n < 3:
+        headline = "Still an early read"
+        note = f"Only {n} candidate(s) screened so far — not enough to judge the pool as a whole yet."
+    elif shortlist >= max(2, n // 3):
+        headline = "Strong pool"
+        note = f"{shortlist} of {n} candidates are strong matches — this pool has real options."
+    elif common_gap:
+        headline = "Most candidates are missing the same thing"
+        note = (
+            f"{int(common_gap['fraction'] * 100)}% of candidates screened have no evidence for "
+            f"\"{common_gap['criterion']}\" specifically. When almost everyone misses the same "
+            "requirement, it's often worth checking whether that criterion is realistic for "
+            "what's actually available in the market, rather than assuming the whole pool is weak."
+        )
+    elif reject >= n * 0.7:
+        headline = "Weak pool overall"
+        note = f"{reject} of {n} candidates don't show what this role needs — worth revisiting sourcing."
+    else:
+        headline = "Mixed pool"
+        note = f"{shortlist} strong, {review} worth a closer look, {reject} not a fit, out of {n} screened."
+
+    return {
+        "pool_size": n, "shortlist_count": shortlist, "review_count": review,
+        "reject_count": reject, "average_score": round(avg_score, 1),
+        "headline": headline, "note": note, "common_gap": common_gap,
     }

@@ -82,6 +82,10 @@ function AssessmentTab({ candidateId }) {
           {g.things_to_check_on_the_call?.length > 0 && (
             <p><b>Check on the call:</b> {g.things_to_check_on_the_call.join(' · ')}</p>
           )}
+          {g.closing_the_gap?.length > 0 && (
+            <p><b>Closing the gap ({g.points_to_shortlist} pts to shortlist):</b>{' '}
+              {g.closing_the_gap.map((c) => `${c.criterion} (+${c.points})`).join(' · ')}</p>
+          )}
           {g.level_context && <p className="small">{g.level_context}</p>}
           <p className="next-step">Next step: {g.next_step}</p>
         </div>

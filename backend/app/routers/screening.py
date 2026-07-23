@@ -61,6 +61,8 @@ def _evaluation_out(evaluation: Evaluation) -> dict:
         "recruiter_guidance": engine.guidance_for_evaluation(evaluation),
         "executive_summary": evaluation.executive_summary,
         "calibration_notes": evaluation.calibration_notes,
+        "overall_impression": evaluation.overall_impression,
+        "overall_impression_note": evaluation.overall_impression_note,
         "explanation": evaluation.explanation,
         "criterion_results": evaluation.criterion_results,
         "relevant_projects": evaluation.relevant_projects,

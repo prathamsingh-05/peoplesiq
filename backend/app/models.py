@@ -325,6 +325,13 @@ class Evaluation(Base):
     # looks-like) before judging evidence — surfaced to the recruiter so "why this
     # score" is answerable in plain terms, not just "the model said so".
     calibration_notes: Mapped[str] = mapped_column(Text, default="")
+    # Holistic, whole-career read of the candidate — strong/adequate/weak/
+    # insufficient_data — formed from the resume as a whole, not the criterion
+    # checklist. Used to pull a purely score-driven rejection back to review
+    # when the whole person clearly reads as a plausible fit (see
+    # services/screening.py principle 14).
+    overall_impression: Mapped[str] = mapped_column(String(24), default="")
+    overall_impression_note: Mapped[str] = mapped_column(Text, default="")
 
     # Per-criterion results: [{criterion_id, name, category, status, evidence,
     #   evidence_verified, weight, score, notes}] where status ∈

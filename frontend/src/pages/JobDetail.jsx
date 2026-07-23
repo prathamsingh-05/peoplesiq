@@ -23,7 +23,7 @@ export default function JobDetail() {
     try {
       await api.del(`/api/jobs/${jobId}`)
       navigate('/jobs')
-    } catch (e) { setDeleteError(e.message) }
+    } catch (e) { setDeleteError(e.message); alert(e.message) }
   }
 
   return (

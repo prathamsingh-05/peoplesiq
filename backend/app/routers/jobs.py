@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..audit import log_action
@@ -217,6 +218,21 @@ def delete_job(job_id: int, request: Request,
     log_action(db, "job.deleted", user=user, entity_type="job", entity_id=job.id,
                details={"title": job.title, "job_code": job.job_code,
                         "candidate_count": len(job.candidates)}, ip=client_ip(request))
-    db.delete(job)
-    db.commit()
+    # A candidate flagged as a duplicate of another candidate in the same job
+    # (routers/candidates.py) points at it via a self-referential FK — clear
+    # it defensively so that link can never block deletion, regardless of
+    # what order SQLAlchemy happens to delete the candidates in.
+    for candidate in job.candidates:
+        candidate.duplicate_of_id = None
+    db.flush()
+    try:
+        db.delete(job)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Could not delete this job because related records are still "
+                   "linked to it. Please contact support.",
+        )
     return None

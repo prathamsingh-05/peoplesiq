@@ -267,6 +267,63 @@ def test_full_pipeline(auth_client):
             "application/vnd.openxmlformats")
 
 
+def test_delete_job_with_screened_and_duplicate_candidates(auth_client):
+    """Regression test for a real production bug: DELETE failed with a
+    "FOREIGN KEY constraint failed" on any job that had actually been used —
+    ProcessingLog rows (written on every upload and every screening event)
+    had no cascade relationship to Job, and a content-duplicate candidate's
+    self-referential duplicate_of_id could also block deletion. This job has
+    both: real ProcessingLog rows from upload + screening, and a duplicate
+    candidate pointing at another candidate in the same job."""
+    client = auth_client
+    job = client.post("/api/jobs", json=JD).json()
+    job_id = job["id"]
+    scorecard = client.post(f"/api/jobs/{job_id}/scorecard/generate").json()
+    client.post(f"/api/jobs/{job_id}/scorecard/{scorecard['id']}/approve")
+
+    files = [
+        ("files", ("original.docx", _docx(STRONG_RESUME),
+                   "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
+        # Same contact details, different body text (different file hash) —
+        # a content-level duplicate, not an exact-hash duplicate, so it gets
+        # its own Candidate row with duplicate_of_id set (unlike an exact
+        # file-hash duplicate, which never creates a candidate row at all).
+        ("files", ("resubmitted.docx", _docx(STRONG_RESUME + "\nResubmitted with a tweak."),
+                   "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
+    ]
+    upload = client.post(f"/api/jobs/{job_id}/candidates/upload", files=files).json()
+    assert upload["processed"] == 1
+    assert upload["duplicates"] == 1
+
+    started = client.post(f"/api/jobs/{job_id}/screen")
+    assert started.status_code == 200
+    for _ in range(60):
+        status = client.get(f"/api/jobs/{job_id}/screen/status").json()
+        if not status["running"]:
+            break
+        time.sleep(0.3)
+    assert status["done"] == 1 and status["failed"] == 0
+
+    log = client.get(f"/api/jobs/{job_id}/processing-log").json()
+    assert len(log) >= 3  # 2 uploads + 1 screening event
+
+    deleted = client.delete(f"/api/jobs/{job_id}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/jobs/{job_id}").status_code == 404
+
+    from app.database import SessionLocal
+    from app import models
+    db = SessionLocal()
+    try:
+        assert db.query(models.Job).filter(models.Job.id == job_id).first() is None
+        assert db.query(models.Candidate).filter(
+            models.Candidate.job_id == job_id).count() == 0
+        assert db.query(models.ProcessingLog).filter(
+            models.ProcessingLog.job_id == job_id).count() == 0
+    finally:
+        db.close()
+
+
 def test_rbac_hiring_manager_read_only(auth_client):
     client = auth_client
     hm = client.post("/api/auth/users", json={

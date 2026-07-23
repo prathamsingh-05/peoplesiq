@@ -162,6 +162,7 @@ def _job(**overrides):
     base = dict(
         title="Backend Engineer", seniority_tier="", compensation_range="",
         good_enough_note="", success_criteria="",
+        ideal_candidate_profile="", domain_context="",
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -198,6 +199,24 @@ def test_calibration_block_ignores_unknown_tier_gracefully():
     # An unrecognised/blank tier must not crash or fabricate guidance text.
     block = _calibration_block(_job(seniority_tier="not-a-real-tier"))
     assert "not-a-real-tier" not in block
+
+
+def test_calibration_block_includes_ideal_candidate_profile():
+    block = _calibration_block(_job(
+        ideal_candidate_profile="Someone who spent 2 years maintaining a Django app "
+                                "and shipped a few features independently."
+    ))
+    assert "Django app" in block
+    assert "pattern to match" in block.lower()
+
+
+def test_calibration_block_includes_domain_context():
+    block = _calibration_block(_job(
+        domain_context="Healthcare data experience is a plus but not required; "
+                       "fintech or insurance data experience counts as adjacent."
+    ))
+    assert "fintech or insurance" in block
+    assert "knock-out" in block.lower()
 
 
 # ---------------------------------------------------------------------------

@@ -70,6 +70,16 @@ Rules:
   never a criterion that scores or compares a candidate's own expected/current
   compensation. Compensation-expectation fit is a human judgement made on the
   screening call, never an automated screening criterion.
+- If the job details below include an example of a strong-fit candidate, use it as a
+  concrete anchor for how much depth each criterion's description should demand —
+  write descriptions that this example candidate would clearly satisfy, not a higher
+  or lower bar you're inferring in the abstract.
+- If the job details below explain how industry/domain background should be weighed,
+  reflect that explicitly in the domain criterion (or omit a domain criterion entirely
+  if the note says domain background doesn't matter). Only mark a domain criterion
+  is_mandatory=true if that note explicitly says specific domain experience is a hard
+  requirement — by default, domain background is real signal but not a knock-out on
+  its own, since capable people cross industries constantly.
 - Write each criterion broadly enough to credit equivalent or adjacent experience, not
   only an exact keyword match. Prefer "cloud infrastructure experience (AWS, Azure, or
   GCP)" over "AWS Lambda specifically," unless the JD names one exact tool as required.
@@ -116,6 +126,8 @@ Compensation band: {job.compensation_range or 'Not specified'}{
 }
 What "good enough" looks like at this level: {job.good_enough_note or 'Not specified'}
 Success criteria (first 6-12 months): {job.success_criteria or 'Not specified'}
+Example of a strong-fit candidate for this role: {job.ideal_candidate_profile or 'Not specified'}
+How industry/domain background should be weighed: {job.domain_context or 'Not specified'}
 
 Full job description:
 <job_description>

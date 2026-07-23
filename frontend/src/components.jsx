@@ -17,6 +17,7 @@ const BADGES = {
   joined: 'ok', handover_complete: 'ok', withdrawn: 'muted', unreachable: 'warn',
   processed: 'ok', error: 'bad',
   pending_review: 'warn', complete: 'ok',
+  strong: 'ok', adequate: 'info', weak: 'bad', insufficient_data: 'muted',
 }
 
 export function Badge({ value }) {

@@ -1,16 +1,30 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, downloadFile } from '../api.js'
 import { Alert, Badge, GuidanceChip, Score, fmtDate, useAsync } from '../components.jsx'
 
 export default function JobDetail() {
   const { jobId } = useParams()
+  const navigate = useNavigate()
   const [tab, setTab] = useState('scorecard')
+  const [deleteError, setDeleteError] = useState('')
   const job = useAsync(() => api.get(`/api/jobs/${jobId}`), [jobId])
 
   if (job.loading) return <p>Loading…</p>
   if (job.error) return <Alert kind="error">{job.error}</Alert>
   const data = job.data
+
+  const deleteJob = async () => {
+    if (!window.confirm(
+      `Delete "${data.title}" (${data.job_code})? This permanently removes the job, its ` +
+      `scorecard, and all ${data.candidate_count} candidate(s) and evaluations for it. This cannot be undone.`
+    )) return
+    setDeleteError('')
+    try {
+      await api.del(`/api/jobs/${jobId}`)
+      navigate('/jobs')
+    } catch (e) { setDeleteError(e.message) }
+  }
 
   return (
     <div>
@@ -21,7 +35,12 @@ export default function JobDetail() {
           <p className="sub">
             {data.client_name} · {data.location || 'location TBD'} · {data.work_model || '—'} ·
             {' '}{data.working_hours || 'hours TBD'} · <Badge value={data.status} />
+            {data.seniority_tier && <> · <Badge value={data.seniority_tier} /></>}
+            {data.compensation_range && <> · {data.compensation_range}</>}
           </p>
+          {data.good_enough_note && (
+            <p className="small muted">Calibration: {data.good_enough_note}</p>
+          )}
         </div>
         <div className="row">
           <button className="btn secondary"
@@ -33,8 +52,10 @@ export default function JobDetail() {
                     .catch((e) => alert(e.message))}>
             Export HM summaries
           </button>
+          <button className="btn danger" onClick={deleteJob}>Delete job</button>
         </div>
       </div>
+      {deleteError && <Alert kind="error" onClose={() => setDeleteError('')}>{deleteError}</Alert>}
 
       <div className="tabs">
         {['scorecard', 'upload', 'leaderboard', 'rediscover'].map((t) => (
@@ -250,6 +271,18 @@ function LeaderboardTab({ jobId, hasScorecard }) {
     } catch (e) { setError(e.message) }
   }
 
+  const rescreenAll = async () => {
+    if (!window.confirm(
+      'Re-run every candidate on this job against the current scorecard? Use this after ' +
+      'editing scorecard weights or criteria so the whole leaderboard reflects the update.'
+    )) return
+    setError('')
+    try {
+      await api.post(`/api/jobs/${jobId}/rescreen-all`)
+      poll()
+    } catch (e) { setError(e.message) }
+  }
+
   const [selected, setSelected] = useState(new Set())
   const toggle = (id) => {
     const next = new Set(selected)
@@ -273,9 +306,16 @@ function LeaderboardTab({ jobId, hasScorecard }) {
     <div className="card">
       <div className="row between">
         <h2>Candidate leaderboard</h2>
-        <button className="btn" onClick={screen} disabled={!hasScorecard || progress?.running}>
-          {progress?.running ? 'Screening…' : '▶ Screen all pending resumes'}
-        </button>
+        <div className="row">
+          <button className="btn secondary" onClick={rescreenAll}
+                  disabled={!hasScorecard || progress?.running || board.data?.length === 0}
+                  title="Re-run everyone against the current scorecard — use after editing weights or criteria">
+            ↻ Rescreen all candidates
+          </button>
+          <button className="btn" onClick={screen} disabled={!hasScorecard || progress?.running}>
+            {progress?.running ? 'Screening…' : '▶ Screen all pending resumes'}
+          </button>
+        </div>
       </div>
       {!hasScorecard && <Alert kind="info">Approve the scorecard first (tab 1).</Alert>}
       <Alert kind="error" onClose={() => setError('')}>{error}</Alert>

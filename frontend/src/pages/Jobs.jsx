@@ -8,6 +8,7 @@ const EMPTY = {
   working_hours: '', work_model: '', min_experience_years: 0,
   essential_skills: '', preferred_skills: '', qualifications: '',
   compensation_range: '', notice_period_preference: '', mandatory_conditions: '',
+  seniority_tier: '', good_enough_note: '', success_criteria: '',
 }
 
 export default function Jobs() {
@@ -68,9 +69,18 @@ export default function Jobs() {
               <input type="number" min="0" step="0.5" value={form.min_experience_years}
                      onChange={set('min_experience_years')} /></label>
             <label className="field">Compensation range
-              <input value={form.compensation_range} onChange={set('compensation_range')} placeholder="e.g. ₹18–28 LPA" /></label>
+              <input value={form.compensation_range} onChange={set('compensation_range')} placeholder="e.g. ₹6–8 LPA" /></label>
             <label className="field">Notice-period preference
               <input value={form.notice_period_preference} onChange={set('notice_period_preference')} placeholder="e.g. 30 days or less" /></label>
+            <label className="field">Seniority tier
+              <select value={form.seniority_tier} onChange={set('seniority_tier')}>
+                <option value="">—</option>
+                <option value="entry">Entry (0–2 yrs)</option>
+                <option value="associate">Associate (1–3 yrs)</option>
+                <option value="mid">Mid</option>
+                <option value="senior">Senior</option>
+                <option value="lead_plus">Lead / Staff / Principal</option>
+              </select></label>
           </div>
           <label className="field">Job description * (paste the full JD)
             <textarea value={form.description} onChange={set('description')} required minLength={20} rows={8} /></label>
@@ -81,10 +91,18 @@ export default function Jobs() {
               <textarea value={form.preferred_skills} onChange={set('preferred_skills')} rows={4} /></label>
             <label className="field">Mandatory screening conditions (one per line)
               <textarea value={form.mandatory_conditions} onChange={set('mandatory_conditions')} rows={4}
-                        placeholder="e.g. Willingness to work night shift" /></label>
+                        placeholder="e.g. Willingness to work night shift — logistics conditions like shift/WFO/relocation are tracked for the recruiter call, not scored against the candidate" /></label>
           </div>
           <label className="field">Qualification requirements
             <input value={form.qualifications} onChange={set('qualifications')} placeholder="e.g. Bachelor's degree in CS" /></label>
+          <div className="grid cols-2">
+            <label className="field">What does "good enough" look like at this level & pay? (helps the AI calibrate expected depth)
+              <textarea value={form.good_enough_note} onChange={set('good_enough_note')} rows={3}
+                        placeholder="e.g. Solid fundamentals and eagerness to learn — not expected to be an expert at this budget" /></label>
+            <label className="field">Success criteria for the first 6–12 months
+              <textarea value={form.success_criteria} onChange={set('success_criteria')} rows={3}
+                        placeholder="e.g. Independently ships small features with code review by month 3" /></label>
+          </div>
           <button className="btn" disabled={busy}>{busy ? 'Creating…' : 'Create job'}</button>
         </form>
       )}

@@ -42,20 +42,55 @@ Rules:
 - Produce 8-16 criteria that a screener can verify from a resume.
 - Categories: mandatory (must-have conditions), experience (years/depth),
   technical_skills, domain (industry/client exposure), qualifications,
-  seniority (level/team scope), location_hours (only if the JD states an explicit
-  location/shift requirement), stability (career progression — an employment gap must
-  NEVER be a criterion), preferred (nice-to-haves).
+  seniority (level/team scope), location_hours (see LOGISTICS rule below),
+  stability (career progression — an employment gap must NEVER be a criterion),
+  preferred (nice-to-haves).
 - Mark is_mandatory=true sparingly — typically only 1-3 criteria per scorecard, and
   only for genuine knock-out requirements explicitly stated in the JD (e.g. a required
   license, clearance, or work authorization). Do not mark ordinary skills or experience
   levels as mandatory just because the JD lists them under "requirements" — most JD
   "requirements" sections are the target profile, not hard knockouts.
+- LOGISTICS RULE: self-selected eligibility conditions — night/rotational shifts,
+  work-from-office, relocation, remote/hybrid, notice period, willingness to travel —
+  are NEVER mandatory scoring criteria, no matter how the JD phrases them. Applicants
+  already self-select for these by choosing to apply once the JD states them, and a
+  resume can rarely prove or disprove them anyway. Put these in category=location_hours
+  with is_mandatory=false so the recruiter confirms them on the call, not the screening
+  score.
+- PAY-BAND / SENIORITY CALIBRATION RULE: read the seniority tier, compensation band,
+  and "what good enough looks like" context in the job details below. Write each
+  criterion's description at the depth that level and pay band actually calls for. A
+  role paying an entry-level wage should describe entry-level evidence ("has used X in
+  a project or internship") not senior-level evidence ("has architected X at scale") —
+  a common, avoidable mistake is writing every scorecard as if it's hiring a top-tier
+  specialist regardless of what the role pays or requires. A senior/lead role should
+  still expect real depth — don't flatten every scorecard to the same generic bar
+  either. The compensation band calibrates how you judge a candidate's SKILLS — it is
+  never a criterion that scores or compares a candidate's own expected/current
+  compensation. Compensation-expectation fit is a human judgement made on the
+  screening call, never an automated screening criterion.
 - Write each criterion broadly enough to credit equivalent or adjacent experience, not
   only an exact keyword match. Prefer "cloud infrastructure experience (AWS, Azure, or
   GCP)" over "AWS Lambda specifically," unless the JD names one exact tool as required.
   A resume that demonstrates the underlying capability in different words should still
   be able to earn "confirmed" or "partial" evidence, not "no_evidence" on a technicality.
 - Weights: 1.0 (standard) to 3.0 (critical); preferred criteria 0.5-1.0.
+- TECHNICAL SKILL WEIGHTING RULE: every skill listed under "Essential skills" below
+  must become its own technical_skills criterion (or be clearly covered by one),
+  weighted 2.0-3.0 in proportion to how central the JD treats it — these are the
+  skills that should actually differentiate candidates, so don't dilute them by
+  weighting them the same as generic/soft criteria like career stability. Every skill
+  under "Preferred skills" must become category=preferred, weighted 0.5-1.0 — real
+  but bonus-only, never equal-weighted with essentials. Do not invent additional
+  skill criteria beyond what the essential/preferred lists and JD text actually call
+  for; padding the scorecard with skills nobody asked for dilutes the weight of the
+  skills that actually matter for this role.
+- Recognize that a skill can appear in the JD/resume under a different name than the
+  scorecard uses (e.g. JS/JavaScript, k8s/Kubernetes, Postgres/PostgreSQL, Node/
+  Node.js, Golang/Go, ML/machine learning) — write each technical_skills criterion's
+  description broadly enough to say so explicitly ("accept common aliases/
+  abbreviations"), so the screening engine doesn't miss real evidence over a naming
+  technicality.
 - Each description must state what EVIDENCE in a resume would satisfy the criterion.
 - Never create criteria about age, gender, marital status, religion, caste, nationality,
   health, photographs, school prestige, or anything a resume cannot lawfully evidence."""
@@ -74,6 +109,10 @@ Preferred skills: {', '.join(job.preferred_skills) or 'See description'}
 Qualifications: {job.qualifications or 'See description'}
 Notice-period preference: {job.notice_period_preference or 'Not specified'}
 Mandatory screening conditions: {'; '.join(job.mandatory_conditions) or 'None listed'}
+Seniority tier: {job.seniority_tier or 'Not specified'}
+Compensation band: {job.compensation_range or 'Not specified'}
+What "good enough" looks like at this level: {job.good_enough_note or 'Not specified'}
+Success criteria (first 6-12 months): {job.success_criteria or 'Not specified'}
 
 Full job description:
 <job_description>
@@ -95,15 +134,41 @@ Full job description:
     return _deterministic_scorecard(job), False
 
 
+# Self-selected eligibility conditions that a candidate already agreed to by
+# applying, and that a resume rarely proves either way — these must never
+# become scored mandatory criteria (see scorecard prompt's LOGISTICS RULE and
+# screening.py scoring principle 12).
+_LOGISTICS_KEYWORDS = (
+    "night shift", "night shifts", "graveyard", "rotational shift", "rotating shift",
+    "shift", "work from office", "wfo", "onsite", "on-site", "on site", "in-office",
+    "in office", "relocate", "relocation", "notice period", "immediate join",
+    "immediate joiner", "immediate joining", "willing to travel", "travel",
+    "remote", "hybrid", "weekend", "late night", "us shift", "uk shift",
+)
+
+
+def _is_logistics_condition(cond: str) -> bool:
+    lowered = cond.lower()
+    return any(keyword in lowered for keyword in _LOGISTICS_KEYWORDS)
+
+
 def _deterministic_scorecard(job: Job) -> list[dict]:
     """Rule-built scorecard from the structured job fields (offline mode)."""
     criteria: list[dict] = []
     for cond in job.mandatory_conditions:
-        criteria.append({
-            "category": "mandatory", "name": cond,
-            "description": f"Resume or screening must confirm: {cond}",
-            "weight": 3.0, "is_mandatory": True,
-        })
+        if _is_logistics_condition(cond):
+            criteria.append({
+                "category": "location_hours", "name": cond,
+                "description": "Self-selected eligibility condition — a resume rarely "
+                               f"proves this either way. Confirm on the screening call: {cond}",
+                "weight": 1.0, "is_mandatory": False,
+            })
+        else:
+            criteria.append({
+                "category": "mandatory", "name": cond,
+                "description": f"Resume or screening must confirm: {cond}",
+                "weight": 3.0, "is_mandatory": True,
+            })
     if job.min_experience_years:
         criteria.append({
             "category": "experience",

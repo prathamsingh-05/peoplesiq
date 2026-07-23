@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .database import Base, engine
+from .database import Base, engine, run_lightweight_migrations
 from .routers import (
     admin, auth_routes, candidates, emails, engagement, interviews, jobs,
     rediscovery, screening, tracker,
@@ -25,6 +25,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    run_lightweight_migrations()
     seed_initial_data()
     await scheduler.start()
     yield

@@ -82,6 +82,7 @@ function AssessmentTab({ candidateId }) {
           {g.things_to_check_on_the_call?.length > 0 && (
             <p><b>Check on the call:</b> {g.things_to_check_on_the_call.join(' · ')}</p>
           )}
+          {g.level_context && <p className="small">{g.level_context}</p>}
           <p className="next-step">Next step: {g.next_step}</p>
         </div>
       )}
@@ -92,11 +93,24 @@ function AssessmentTab({ candidateId }) {
           <span className="small muted">
             engine: {ev.engine}{ev.model_used && ` (${ev.model_used})`} · confidence <Badge value={ev.confidence} />
             · mandatory <Badge value={ev.mandatory_status} />
+            {ev.overall_impression && <> · whole-person read <Badge value={ev.overall_impression} /></>}
           </span>
         </div>
         <p>{ev.executive_summary}</p>
+        {ev.overall_impression_note && (
+          <>
+            <h3>Who this person is, as a professional</h3>
+            <p className="small muted">{ev.overall_impression_note}</p>
+          </>
+        )}
         <h3>Why this recommendation</h3>
         <p>{ev.explanation}</p>
+        {ev.calibration_notes && (
+          <>
+            <h3>How this was judged for this role</h3>
+            <p className="small muted">{ev.calibration_notes}</p>
+          </>
+        )}
       </div>
 
       <div className="grid cols-2">

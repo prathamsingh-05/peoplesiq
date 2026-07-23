@@ -60,6 +60,9 @@ def _evaluation_out(evaluation: Evaluation) -> dict:
         "confidence": evaluation.confidence,
         "recruiter_guidance": engine.guidance_for_evaluation(evaluation),
         "executive_summary": evaluation.executive_summary,
+        "calibration_notes": evaluation.calibration_notes,
+        "overall_impression": evaluation.overall_impression,
+        "overall_impression_note": evaluation.overall_impression_note,
         "explanation": evaluation.explanation,
         "criterion_results": evaluation.criterion_results,
         "relevant_projects": evaluation.relevant_projects,
@@ -149,9 +152,10 @@ def _screen_batch(job_id: int, scorecard_id: int, candidate_ids: list[int],
 def _screen_one(db: Session, candidate: Candidate, scorecard: Scorecard,
                 job: Job, batch_id: str) -> Evaluation:
     text = candidate.redacted_text or candidate.resume_text
-    ihash = engine.input_hash(text, scorecard)
+    ihash = engine.input_hash(text, scorecard, job)
 
-    # Consistency guarantee: identical resume + scorecard → reuse the result.
+    # Consistency guarantee: identical resume + scorecard + job calibration
+    # context → reuse the result.
     cached = (
         db.query(Evaluation)
         .filter(Evaluation.input_hash == ihash, Evaluation.candidate_id == candidate.id)
@@ -160,7 +164,7 @@ def _screen_one(db: Session, candidate: Candidate, scorecard: Scorecard,
     if cached:
         evaluation = cached
     else:
-        result = engine.evaluate(text, scorecard, job.title)
+        result = engine.evaluate(text, scorecard, job)
         evaluation = Evaluation(
             candidate_id=candidate.id, scorecard_id=scorecard.id, input_hash=ihash,
             model_used=config.ANTHROPIC_MODEL if result["engine"] == "llm" else "",
@@ -223,6 +227,52 @@ def rescreen_candidate(candidate_id: int, request: Request,
     log_action(db, "screening.rescreened", user=user, entity_type="candidate",
                entity_id=candidate.id, ip=client_ip(request), commit=True)
     return _evaluation_out(evaluation)
+
+
+@router.post("/jobs/{job_id}/rescreen-all")
+def rescreen_all_candidates(job_id: int, request: Request,
+                            user: User = Depends(require_recruiter),
+                            db: Session = Depends(get_db)):
+    """Re-runs every already-processed candidate on this job against the
+    current approved scorecard — for use after editing scorecard weights or
+    criteria, so the whole leaderboard reflects the corrected scorecard
+    instead of a mix of old and new evaluations. Identical resume + scorecard
+    + job-calibration inputs still hit the consistency cache (brief §13); this
+    only forces candidates that were skipped by the "pending only" batch
+    screen to be picked up again."""
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    scorecard = _approved_scorecard(db, job)
+
+    candidate_ids = [
+        c.id for c in job.candidates
+        if c.status not in (CandidateStatus.duplicate.value, CandidateStatus.unreadable.value)
+        and (c.redacted_text or c.resume_text)
+    ]
+    if not candidate_ids:
+        raise HTTPException(status_code=400,
+                            detail="No screenable candidates on this job yet")
+
+    progress = _screen_progress.get(job_id)
+    if progress and progress.get("running"):
+        raise HTTPException(status_code=409, detail="Screening already running for this job")
+
+    batch_id = str(uuid.uuid4())
+    _screen_progress[job_id] = {
+        "running": True, "batch_id": batch_id, "total": len(candidate_ids),
+        "done": 0, "failed": 0, "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    log_action(db, "screening.rescreen_all_started", user=user, entity_type="job",
+               entity_id=job.id, details={"batch_id": batch_id, "count": len(candidate_ids)},
+               ip=client_ip(request), commit=True)
+
+    thread = threading.Thread(
+        target=_screen_batch, args=(job_id, scorecard.id, candidate_ids, batch_id),
+        daemon=True,
+    )
+    thread.start()
+    return {"batch_id": batch_id, "queued": len(candidate_ids)}
 
 
 # ---------------------------------------------------------------------------

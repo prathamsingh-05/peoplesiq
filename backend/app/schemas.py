@@ -40,6 +40,9 @@ class JobCreate(BaseModel):
     compensation_range: str = ""
     notice_period_preference: str = ""
     mandatory_conditions: list[str] = []
+    seniority_tier: str = Field(default="", pattern=r"^(|entry|associate|mid|senior|lead_plus)$")
+    good_enough_note: str = ""
+    success_criteria: str = ""
 
 
 class JobUpdate(BaseModel):
@@ -56,6 +59,9 @@ class JobUpdate(BaseModel):
     compensation_range: str | None = None
     notice_period_preference: str | None = None
     mandatory_conditions: list[str] | None = None
+    seniority_tier: str | None = Field(default=None, pattern=r"^(|entry|associate|mid|senior|lead_plus)$")
+    good_enough_note: str | None = None
+    success_criteria: str | None = None
     status: str | None = Field(default=None, pattern=r"^(draft|active|on_hold|closed)$")
 
 

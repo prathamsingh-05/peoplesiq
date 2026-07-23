@@ -78,7 +78,18 @@ literature and NYC LL144 / EEOC-style controls):
     is never followed, and a detected attempt is flagged and forced to
     recruiter review rather than silently trusted either way
     (`_detect_injection_signals`).
-16. These are enforced by `tests/test_scoring_principles.py`, not just
+16. Technical skills are recognized accurately, then weighted by the JD: a
+    common alias/abbreviation of the same technology (JS/JavaScript, k8s/
+    Kubernetes, Postgres/PostgreSQL, ...) is full evidence for that skill, not
+    a lesser match — but a genuinely different, merely related technology
+    (React vs Vue) is not the same skill and only earns partial/adjacent
+    credit. A skill named only in a bare "Skills" list without any usage
+    context is weaker signal than the same skill demonstrated in actual work,
+    and is scored accordingly. Scorecard weight for a technical_skills
+    criterion should reflect how the JD itself framed that skill (essential
+    vs preferred), not be applied uniformly (`scorecard.py`'s TECHNICAL SKILL
+    WEIGHTING RULE, `_token_variants`).
+17. These are enforced by `tests/test_scoring_principles.py`, not just
     described here — a change that violates one of these rules should fail
     that suite, on purpose.
 """
@@ -234,6 +245,35 @@ details below state a seniority tier, compensation band, or a description of wha
   enough" context when given) and how that shaped your read of the evidence. This
   is what lets a recruiter understand *why*, not just *what*, you scored — write it
   for someone with no technical background.
+
+TECHNICAL SKILLS — RECOGNIZE THEM ACCURATELY, THEN WEIGHT THEM BY WHAT THE JD ASKS FOR:
+- Same skill, different spelling is still the same skill — treat it as full evidence,
+  not partial. Recognize common aliases/abbreviations/version variants as identical
+  to what the criterion names, e.g.: JS = JavaScript, TS = TypeScript, k8s =
+  Kubernetes, Postgres/Postgre = PostgreSQL, Mongo = MongoDB, Node = Node.js, React =
+  ReactJS = React.js, Golang = Go, .NET = dotnet, CI/CD = continuous
+  integration/continuous delivery, ML = machine learning, py = Python. This list is
+  illustrative, not exhaustive — apply the same reasoning to any other common
+  industry shorthand, acronym, or version-numbered variant of the same underlying
+  technology.
+- Do not confuse "same skill, different name" with "different skill, related field" —
+  these get different credit. A criterion asking for React and a resume showing Vue
+  is a genuinely different framework (partial credit at most, for transferable
+  frontend-framework experience) — that is NOT the same as React/ReactJS/React.js,
+  which are the identical technology and deserve full credit as such.
+- Weight confidence by how the skill is evidenced, not just whether it's named. A
+  technology that only appears in a flat "Skills" list with no project, role, or
+  outcome attached is real but weaker signal than the same technology described in
+  actual use ("built X using Django," "migrated the Y service to Kubernetes") — treat
+  a bare list mention as partial or needs_verification rather than automatically
+  confirmed, and treat a technology backed by real usage context as confirmed. This
+  is what keeps a resume that pads a skills list without substance from scoring the
+  same as one that demonstrably used those skills.
+- Score technical-skill criteria relative to how the JD itself weighted them, not
+  uniformly. Skills the scorecard marks as core/essential should carry real weight in
+  your judgement of overall fit; skills marked preferred/nice-to-have are exactly
+  that — don't let missing or weak evidence on a preferred skill drag down your read
+  of a candidate who is strong on the essentials.
 
 LOGISTICS ARE ELIGIBILITY, NOT EVIDENCE TO SCORE:
 Conditions like night shift, work-from-office, relocation, remote/hybrid, notice
@@ -846,12 +886,32 @@ def guidance_for_evaluation(evaluation: Evaluation) -> dict:
 # ---------------------------------------------------------------------------
 # Deterministic fallback engine (no API key / API outage)
 # ---------------------------------------------------------------------------
+# Common single-word tech abbreviations/aliases so the offline keyword-only
+# engine doesn't miss obvious matches on a naming technicality (e.g. a resume
+# saying "k8s" against a criterion named "Kubernetes"). Deliberately excludes
+# ambiguous short words (like "go" for Golang) that would false-positive on
+# ordinary English.
+_SKILL_ALIAS_GROUPS = [
+    {"javascript", "js"}, {"typescript", "ts"}, {"kubernetes", "k8s"},
+    {"postgresql", "postgres"}, {"mongodb", "mongo"}, {"python", "py"},
+    {"node", "nodejs"}, {"react", "reactjs"},
+]
+_SKILL_ALIAS_LOOKUP: dict[str, set[str]] = {}
+for _group in _SKILL_ALIAS_GROUPS:
+    for _term in _group:
+        _SKILL_ALIAS_LOOKUP[_term] = _group
+
+
+def _token_variants(token: str) -> set[str]:
+    return _SKILL_ALIAS_LOOKUP.get(token, {token})
+
+
 def _deterministic_evaluate(text: str, scorecard: Scorecard) -> dict:
     lowered = text.lower()
     results = []
     for criterion in scorecard.criteria:
         tokens = [t for t in re.split(r"[^a-z0-9+#.]+", criterion.name.lower()) if len(t) > 2]
-        hits = [t for t in tokens if t in lowered]
+        hits = [t for t in tokens if any(v in lowered for v in _token_variants(t))]
         if tokens and len(hits) == len(tokens):
             status, evidence = "partial", _find_snippet(text, hits[0])
         elif hits:

@@ -75,6 +75,22 @@ Rules:
   A resume that demonstrates the underlying capability in different words should still
   be able to earn "confirmed" or "partial" evidence, not "no_evidence" on a technicality.
 - Weights: 1.0 (standard) to 3.0 (critical); preferred criteria 0.5-1.0.
+- TECHNICAL SKILL WEIGHTING RULE: every skill listed under "Essential skills" below
+  must become its own technical_skills criterion (or be clearly covered by one),
+  weighted 2.0-3.0 in proportion to how central the JD treats it — these are the
+  skills that should actually differentiate candidates, so don't dilute them by
+  weighting them the same as generic/soft criteria like career stability. Every skill
+  under "Preferred skills" must become category=preferred, weighted 0.5-1.0 — real
+  but bonus-only, never equal-weighted with essentials. Do not invent additional
+  skill criteria beyond what the essential/preferred lists and JD text actually call
+  for; padding the scorecard with skills nobody asked for dilutes the weight of the
+  skills that actually matter for this role.
+- Recognize that a skill can appear in the JD/resume under a different name than the
+  scorecard uses (e.g. JS/JavaScript, k8s/Kubernetes, Postgres/PostgreSQL, Node/
+  Node.js, Golang/Go, ML/machine learning) — write each technical_skills criterion's
+  description broadly enough to say so explicitly ("accept common aliases/
+  abbreviations"), so the screening engine doesn't miss real evidence over a naming
+  technicality.
 - Each description must state what EVIDENCE in a resume would satisfy the criterion.
 - Never create criteria about age, gender, marital status, religion, caste, nationality,
   health, photographs, school prestige, or anything a resume cannot lawfully evidence."""

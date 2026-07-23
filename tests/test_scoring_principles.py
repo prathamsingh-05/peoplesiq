@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 from app.services.screening import (
     _calibration_block, _compute_score, _detect_inconsistent_criteria,
-    _detect_injection_signals, _recommend, _verify_evidence,
+    _detect_injection_signals, _deterministic_evaluate, _recommend, _token_variants,
+    _verify_evidence,
 )
 from app.services.scorecard import _deterministic_scorecard, _is_logistics_condition
 
@@ -338,3 +339,37 @@ def test_detects_prompt_injection_attempt():
 def test_clean_resume_has_no_injection_hits():
     text = "Senior backend engineer with 6 years of experience building Python and AWS services."
     assert _detect_injection_signals(text) == []
+
+
+# ---------------------------------------------------------------------------
+# Principle: technical skills are recognized accurately (aliases/abbreviations
+# count as the same skill), not just matched on the scorecard's exact wording.
+# ---------------------------------------------------------------------------
+def test_token_variants_include_common_aliases():
+    assert "k8s" in _token_variants("kubernetes")
+    assert "kubernetes" in _token_variants("k8s")
+    assert "js" in _token_variants("javascript")
+
+
+def test_token_variants_leaves_unrelated_words_alone():
+    assert _token_variants("communication") == {"communication"}
+
+
+def _fake_criterion(criterion_id, name):
+    return SimpleNamespace(id=criterion_id, name=name)
+
+
+def _fake_scorecard(criteria):
+    return SimpleNamespace(criteria=criteria)
+
+
+def test_deterministic_engine_recognizes_skill_alias_not_exact_wording():
+    """The offline engine only ever does keyword matching, but it should
+    still recognize "k8s" as evidence for a "Kubernetes experience"
+    criterion instead of missing it purely because the resume used the
+    common abbreviation instead of the full name."""
+    scorecard = _fake_scorecard([_fake_criterion(1, "Kubernetes experience")])
+    text = "Deployed and managed production k8s clusters for 3 years of experience."
+    raw = _deterministic_evaluate(text, scorecard)
+    result = raw["criterion_results"][0]
+    assert result["status"] != "no_evidence"

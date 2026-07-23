@@ -6,9 +6,10 @@ violates one of those principles fails CI, on purpose — this is what turns
 from types import SimpleNamespace
 
 from app.services.screening import (
-    _calibration_block, _compute_score, _detect_inconsistent_criteria,
-    _detect_injection_signals, _deterministic_evaluate, _lpa_band_guidance, _parse_lpa,
-    _recommend, _token_variants, _verify_evidence,
+    SHORTLIST_THRESHOLD, _calibration_block, _closing_the_gap, _compute_score,
+    _detect_inconsistent_criteria, _detect_injection_signals, _deterministic_evaluate,
+    _lpa_band_guidance, _parse_lpa, _recommend, _token_variants, _verify_evidence,
+    build_recruiter_guidance, pool_insight,
 )
 from app.services.scorecard import _deterministic_scorecard, _is_logistics_condition
 
@@ -432,3 +433,123 @@ def test_calibration_block_includes_lpa_band_guidance_from_compensation_alone():
     expectations."""
     block = _calibration_block(_job(compensation_range="₹6-7 LPA"))
     assert "good fit" in block.lower()
+
+
+# ---------------------------------------------------------------------------
+# Principle: a borderline recommendation should come with a specific,
+# actionable "how close is this candidate, and to what" — not just a
+# category label. Deterministic, reuses _compute_score's exact weighting.
+# ---------------------------------------------------------------------------
+def test_closing_the_gap_empty_when_score_already_meets_threshold():
+    results = [_criterion("Core skill", 2.0, "confirmed")]
+    score, _ = _compute_score(results)
+    points, gap = _closing_the_gap(score, results)
+    assert points == 0.0
+    assert gap == []
+
+
+def test_closing_the_gap_ranks_by_score_impact():
+    results = [
+        _criterion("High-weight skill", 5.0, "needs_verification", category="technical_skills"),
+        _criterion("Low-weight skill", 1.0, "needs_verification", category="technical_skills"),
+        _criterion("Already confirmed", 4.0, "confirmed", category="technical_skills"),
+        _criterion("Weak spot", 2.0, "no_evidence", category="technical_skills"),
+    ]
+    score, _ = _compute_score(results)
+    assert score < SHORTLIST_THRESHOLD
+    points_needed, gap = _closing_the_gap(score, results)
+    assert points_needed > 0
+    assert gap[0]["criterion"] == "High-weight skill"
+    assert gap[0]["points"] > gap[1]["points"]
+
+
+def test_closing_the_gap_excludes_score_excluded_categories():
+    """Confirming a location_hours criterion can't move the score at all
+    (it's excluded from the score entirely) — it must never be suggested as
+    a way to close the gap to shortlist."""
+    results = [
+        _criterion("Core skill", 2.0, "needs_verification", category="technical_skills"),
+        _criterion("Shift fit", 3.0, "needs_verification", category="location_hours"),
+    ]
+    score, _ = _compute_score(results)
+    _, gap = _closing_the_gap(score, results)
+    assert all(g["criterion"] != "Shift fit" for g in gap)
+
+
+def test_build_recruiter_guidance_review_surfaces_closing_the_gap():
+    results = [
+        _criterion("Core skill", 3.0, "needs_verification", category="technical_skills"),
+        _criterion("Other skill", 1.0, "no_evidence", category="technical_skills"),
+    ]
+    score, mandatory_status = _compute_score(results)
+    guidance = build_recruiter_guidance(
+        recommendation="recruiter_review", score=score, mandatory_status=mandatory_status,
+        key_strengths=[], gaps=[], verification_questions=[], criterion_results=results,
+    )
+    assert guidance["points_to_shortlist"] > 0
+    assert guidance["closing_the_gap"]
+    assert "points off" in guidance["reason_in_plain_english"]
+
+
+def test_build_recruiter_guidance_shortlist_has_zero_gap():
+    results = [_criterion("Core skill", 2.0, "confirmed")]
+    score, mandatory_status = _compute_score(results)
+    guidance = build_recruiter_guidance(
+        recommendation="shortlist", score=score, mandatory_status=mandatory_status,
+        key_strengths=[], gaps=[], verification_questions=[], criterion_results=results,
+    )
+    assert guidance["points_to_shortlist"] == 0.0
+    assert guidance["closing_the_gap"] == []
+
+
+# ---------------------------------------------------------------------------
+# Principle: a recruiter reading a batch of resumes forms an opinion about
+# the pool as a whole, not just each candidate in isolation — pool_insight
+# is that read, computed deterministically from already-stored evaluations.
+# ---------------------------------------------------------------------------
+def _fake_eval(score, recommendation, criterion_results=None):
+    return SimpleNamespace(
+        overall_score=score, recommendation=recommendation,
+        criterion_results=criterion_results or [],
+    )
+
+
+def test_pool_insight_empty_pool():
+    insight = pool_insight([])
+    assert insight["pool_size"] == 0
+    assert "no candidates" in insight["headline"].lower()
+
+
+def test_pool_insight_too_small_to_judge():
+    insight = pool_insight([_fake_eval(80, "shortlist"), _fake_eval(40, "do_not_shortlist")])
+    assert "early read" in insight["headline"].lower()
+
+
+def test_pool_insight_strong_pool():
+    evals = [_fake_eval(85, "shortlist"), _fake_eval(80, "shortlist"),
+             _fake_eval(50, "recruiter_review"), _fake_eval(30, "do_not_shortlist")]
+    insight = pool_insight(evals)
+    assert insight["shortlist_count"] == 2
+    assert "strong pool" in insight["headline"].lower()
+
+
+def test_pool_insight_detects_common_gap_across_pool():
+    def ev(score, rec):
+        return _fake_eval(score, rec, [
+            {"name": "Kubernetes experience", "status": "no_evidence"},
+            {"name": "Python experience", "status": "confirmed"},
+        ])
+    evals = [ev(40, "do_not_shortlist"), ev(45, "recruiter_review"),
+             ev(35, "do_not_shortlist"), ev(50, "recruiter_review")]
+    insight = pool_insight(evals)
+    assert insight["common_gap"] is not None
+    assert insight["common_gap"]["criterion"] == "Kubernetes experience"
+    assert "missing the same thing" in insight["headline"].lower()
+
+
+def test_pool_insight_weak_pool_without_common_gap():
+    evals = [_fake_eval(10, "do_not_shortlist"), _fake_eval(15, "do_not_shortlist"),
+             _fake_eval(20, "do_not_shortlist"), _fake_eval(25, "recruiter_review")]
+    insight = pool_insight(evals)
+    assert insight["common_gap"] is None
+    assert "weak pool" in insight["headline"].lower()

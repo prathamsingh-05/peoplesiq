@@ -1,7 +1,7 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
 import { api, downloadFile } from '../api.js'
-import { Alert, useAsync } from '../components.jsx'
+import { Alert, Spinner, useAsync } from '../components.jsx'
 
 const TILES = [
   ['total_resumes_received', 'Resumes received'],
@@ -22,7 +22,7 @@ export default function Dashboard() {
   const { data, error, loading } = useAsync(() => api.get('/api/dashboard'))
   const health = useAsync(() => api.get('/api/health'))
 
-  if (loading) return <p>Loading…</p>
+  if (loading) return <Spinner />
   if (error) return <Alert kind="error">{error}</Alert>
 
   return (

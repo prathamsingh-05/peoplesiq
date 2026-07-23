@@ -1,7 +1,7 @@
 import React, { useContext, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
-import { Alert, Badge, fmtDate, useAsync } from '../components.jsx'
+import { Alert, Badge, Spinner, fmtDate, useAsync } from '../components.jsx'
 import { UserContext } from '../App.jsx'
 
 export default function Governance() {
@@ -38,7 +38,7 @@ function AuditTab() {
                   onClick={() => setAction(a)}>{a || 'all'}</button>
         ))}
       </div>
-      {logs.loading ? <p>Loading…</p> : (
+      {logs.loading ? <Spinner /> : (
         <table className="data">
           <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Entity</th><th>Details</th></tr></thead>
           <tbody>
@@ -60,7 +60,7 @@ function AuditTab() {
 
 function ReportTab() {
   const report = useAsync(() => api.get('/api/responsible-ai-report'))
-  if (report.loading) return <p>Loading…</p>
+  if (report.loading) return <Spinner />
   if (report.error) return <Alert kind="error">{report.error}</Alert>
   const r = report.data
   const ok = (b) => b === true ? <span className="badge ok">pass</span>
@@ -123,7 +123,7 @@ function FairnessTab() {
         automatically flagged here for mandatory human review — the periodic check that keeps
         the AI honest (§15).</p>
       <Alert kind="error" onClose={() => setError('')}>{error}</Alert>
-      {queue.loading ? <p>Loading…</p> : (
+      {queue.loading ? <Spinner /> : (
         <table className="data">
           <thead><tr><th>Candidate</th><th>Job</th><th>AI recommendation</th>
             <th>Recruiter decision</th><th></th></tr></thead>
@@ -175,7 +175,7 @@ function UsersTab() {
         <button className="btn" onClick={() => act(() => api.post('/api/auth/users', form))}>Create user</button>
       </div>
       <div className="card">
-        {users.loading ? <p>Loading…</p> : (
+        {users.loading ? <Spinner /> : (
           <table className="data">
             <thead><tr><th>Username</th><th>Name</th><th>Email</th><th>Role</th>
               <th>Active</th><th>Last login</th><th></th></tr></thead>

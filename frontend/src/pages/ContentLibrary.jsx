@@ -1,6 +1,6 @@
 import React, { useContext, useState } from 'react'
 import { api } from '../api.js'
-import { Alert, Badge, useAsync } from '../components.jsx'
+import { Alert, Badge, Spinner, useAsync } from '../components.jsx'
 import { UserContext } from '../App.jsx'
 
 const TYPES = ['leadership_welcome', 'company_video', 'employee_story', 'office_photos',
@@ -41,7 +41,7 @@ export default function ContentLibrary() {
       </div>
 
       <div className="card">
-        {items.loading ? <p>Loading…</p> : (
+        {items.loading ? <Spinner /> : (
           <table className="data">
             <thead><tr><th>Title</th><th>Type</th><th>Content</th><th>Approved</th><th>Active</th><th></th></tr></thead>
             <tbody>

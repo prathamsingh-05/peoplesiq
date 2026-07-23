@@ -1,14 +1,14 @@
 import React, { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api.js'
-import { Alert, Badge, Score, fmtDate, fmtDay, useAsync } from '../components.jsx'
+import { Alert, Badge, Score, Spinner, fmtDate, fmtDay, useAsync } from '../components.jsx'
 
 export default function CandidateDetail() {
   const { candidateId } = useParams()
   const [tab, setTab] = useState('assessment')
   const candidate = useAsync(() => api.get(`/api/candidates/${candidateId}`), [candidateId])
 
-  if (candidate.loading) return <p>Loading…</p>
+  if (candidate.loading) return <Spinner />
   if (candidate.error) return <Alert kind="error">{candidate.error}</Alert>
   const c = candidate.data
 
@@ -60,7 +60,7 @@ function AssessmentTab({ candidateId }) {
       throw e
     }), [candidateId])
 
-  if (evaluation.loading) return <p>Loading…</p>
+  if (evaluation.loading) return <Spinner />
   const ev = evaluation.data
   if (!ev) return <Alert kind="info">Not screened yet — run screening from the job's leaderboard tab.</Alert>
 
@@ -155,7 +155,7 @@ function QuestionsTab({ candidateId }) {
   const saveAnswer = (id, answer) => api.patch(`/api/questions/${id}/answer`, { answer })
     .catch((e) => setError(e.message))
 
-  if (questions.loading) return <p>Loading…</p>
+  if (questions.loading) return <Spinner />
   const groups = { eligibility: [], skill_evidence: [], gap_probing: [], motivation: [] }
   for (const q of questions.data) (groups[q.category] || groups.motivation).push(q)
 
@@ -315,7 +315,7 @@ function SummaryTab({ candidateId }) {
   const approve = () => api.post(`/api/hm-summaries/${summary.data.id}/approve`)
     .then(() => summary.reload()).catch((e) => setError(e.message))
 
-  if (summary.loading) return <p>Loading…</p>
+  if (summary.loading) return <Spinner />
   const s = summary.data
 
   return (
@@ -368,7 +368,7 @@ function EmailsTab({ candidate }) {
       <p className="small muted">Nothing is ever sent without your explicit approval (gate #3).
         Rejection/hold templates are draft-only by policy.</p>
 
-      {emails.loading ? <p>Loading…</p> : emails.data.map((m) => (
+      {emails.loading ? <Spinner /> : emails.data.map((m) => (
         <div key={m.id} className="card" style={{ background: '#fafbfe' }}>
           <div className="row between">
             <div>

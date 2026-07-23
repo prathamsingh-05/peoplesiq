@@ -9,6 +9,7 @@ const EMPTY = {
   essential_skills: '', preferred_skills: '', qualifications: '',
   compensation_range: '', notice_period_preference: '', mandatory_conditions: '',
   seniority_tier: '', good_enough_note: '', success_criteria: '',
+  ideal_candidate_profile: '', domain_context: '',
 }
 
 export default function Jobs() {
@@ -95,6 +96,13 @@ export default function Jobs() {
           </div>
           <label className="field">Qualification requirements
             <input value={form.qualifications} onChange={set('qualifications')} placeholder="e.g. Bachelor's degree in CS" /></label>
+
+          <h3 style={{ marginTop: 14 }}>Help the AI understand this role in depth</h3>
+          <p className="small muted" style={{ marginTop: -8, marginBottom: 12 }}>
+            The fields below aren't restated from the JD — they're the context a senior recruiter
+            would already have in their head before screening a single resume. The more you fill
+            in, the more accurately candidates get judged against what this role actually needs.
+          </p>
           <div className="grid cols-2">
             <label className="field">What does "good enough" look like at this level & pay? (helps the AI calibrate expected depth)
               <textarea value={form.good_enough_note} onChange={set('good_enough_note')} rows={3}
@@ -102,6 +110,12 @@ export default function Jobs() {
             <label className="field">Success criteria for the first 6–12 months
               <textarea value={form.success_criteria} onChange={set('success_criteria')} rows={3}
                         placeholder="e.g. Independently ships small features with code review by month 3" /></label>
+            <label className="field">Example of a strong-fit candidate (real or hypothetical)
+              <textarea value={form.ideal_candidate_profile} onChange={set('ideal_candidate_profile')} rows={3}
+                        placeholder="e.g. Someone who spent 2 years maintaining a Django app, shipped a few features independently, and can debug production issues without hand-holding" /></label>
+            <label className="field">How should industry/domain background be weighed?
+              <textarea value={form.domain_context} onChange={set('domain_context')} rows={3}
+                        placeholder="e.g. Higher-ed ERP experience is a strong plus but not required — any large-scale enterprise system experience should count as adjacent" /></label>
           </div>
           <button className="btn" disabled={busy}>{busy ? 'Creating…' : 'Create job'}</button>
         </form>

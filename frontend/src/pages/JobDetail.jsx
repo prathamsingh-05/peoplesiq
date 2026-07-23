@@ -41,6 +41,12 @@ export default function JobDetail() {
           {data.good_enough_note && (
             <p className="small muted">Calibration: {data.good_enough_note}</p>
           )}
+          {data.ideal_candidate_profile && (
+            <p className="small muted">Strong-fit example: {data.ideal_candidate_profile}</p>
+          )}
+          {data.domain_context && (
+            <p className="small muted">Domain weighting: {data.domain_context}</p>
+          )}
         </div>
         <div className="row">
           <button className="btn secondary"

@@ -99,6 +99,14 @@ class Job(Base):
     seniority_tier: Mapped[str] = mapped_column(String(32), default="")  # entry/associate/mid/senior/lead_plus
     good_enough_note: Mapped[str] = mapped_column(Text, default="")  # "what good enough looks like here"
     success_criteria: Mapped[str] = mapped_column(Text, default="")  # first 6-12 months expectations
+    # A concrete anchor beats an abstract one: a described real/hypothetical
+    # strong-fit profile gives the engine something to pattern-match against,
+    # which is a much sharper calibration signal than a tier label alone.
+    ideal_candidate_profile: Mapped[str] = mapped_column(Text, default="")
+    # How transferable adjacent-industry experience is for THIS role — without
+    # this, the engine has no way to tell "must have done this exact domain"
+    # from "any adjacent domain is fine, we'll teach the specifics."
+    domain_context: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(32), default=JobStatus.draft.value)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

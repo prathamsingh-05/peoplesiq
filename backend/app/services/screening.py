@@ -288,8 +288,17 @@ in itself.
 ROLE-LEVEL CALIBRATION — read this before judging depth on any criterion:
 A resume is not judged against one fixed "impressive" ideal. It is judged against
 what THIS role, at THIS level and THIS pay band, actually requires. If the job
-details below state a seniority tier, compensation band, or a description of what
-"good enough" looks like at this level, use it:
+details below state a seniority tier, compensation band, a description of what
+"good enough" looks like at this level, a concrete example of a strong-fit
+candidate, or guidance on how domain/industry background should be weighed, use it:
+- When an example of a strong-fit candidate is given, treat it as a concrete pattern
+  to match against, not a rigid checklist — a real candidate doesn't need to match
+  every detail of the example to be a good fit, but it tells you what "good" actually
+  looks like for this role far more precisely than an abstract tier label does.
+- When guidance on domain/industry background is given, apply it as stated — some
+  roles genuinely require specific industry exposure, others are happy to teach it to
+  someone strong in adjacent work. Don't default to assuming domain experience is a
+  hard requirement unless the guidance says so.
 - An entry-level role paying an entry-level wage does not need — and should not be
   scored as if it needs — staff/principal-level depth, architecture ownership, or
   a "hotshot" pedigree. Good fundamentals plus the ability to learn on the job IS
@@ -510,6 +519,21 @@ def _calibration_block(job) -> str:
     success = (getattr(job, "success_criteria", "") or "").strip()
     if success:
         lines.append(f"What success in the first 6-12 months looks like: {success}")
+    ideal_profile = (getattr(job, "ideal_candidate_profile", "") or "").strip()
+    if ideal_profile:
+        lines.append(
+            "A concrete example of a strong fit for this role, from the hiring team "
+            f"(use this as a pattern to match against, not a rigid checklist — a "
+            f"candidate doesn't need to match every detail to be a good fit): {ideal_profile}"
+        )
+    domain_context = (getattr(job, "domain_context", "") or "").strip()
+    if domain_context:
+        lines.append(
+            "How industry/domain background should be weighed for this role, per the "
+            f"hiring team: {domain_context} Only apply this as a hard gate if the hiring "
+            "team's note above says so explicitly — otherwise treat it as guidance on "
+            "how much credit adjacent-domain experience deserves, not a knock-out."
+        )
     if not lines:
         return ""
     return "Role-level calibration for THIS job:\n" + "\n".join(f"- {l}" for l in lines)

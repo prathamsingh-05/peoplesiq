@@ -36,6 +36,8 @@ def _job_out(job: Job, db: Session | None = None) -> dict:
         "seniority_tier": job.seniority_tier,
         "good_enough_note": job.good_enough_note,
         "success_criteria": job.success_criteria,
+        "ideal_candidate_profile": job.ideal_candidate_profile,
+        "domain_context": job.domain_context,
         "status": job.status,
         "owner": job.owner.full_name if job.owner else "",
         "candidate_count": len(job.candidates),
@@ -106,7 +108,7 @@ def update_job(job_id: int, payload: JobUpdate, request: Request,
     jd_fields = {"description", "essential_skills", "preferred_skills",
                  "mandatory_conditions", "min_experience_years", "qualifications",
                  "seniority_tier", "compensation_range", "good_enough_note",
-                 "success_criteria"}
+                 "success_criteria", "ideal_candidate_profile", "domain_context"}
     for key, value in changes.items():
         setattr(job, key, value)
     # Changing the requirement invalidates approval: scorecard must be re-approved.

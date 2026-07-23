@@ -43,6 +43,8 @@ class JobCreate(BaseModel):
     seniority_tier: str = Field(default="", pattern=r"^(|entry|associate|mid|senior|lead_plus)$")
     good_enough_note: str = ""
     success_criteria: str = ""
+    ideal_candidate_profile: str = ""
+    domain_context: str = ""
 
 
 class JobUpdate(BaseModel):
@@ -62,6 +64,8 @@ class JobUpdate(BaseModel):
     seniority_tier: str | None = Field(default=None, pattern=r"^(|entry|associate|mid|senior|lead_plus)$")
     good_enough_note: str | None = None
     success_criteria: str | None = None
+    ideal_candidate_profile: str | None = None
+    domain_context: str | None = None
     status: str | None = Field(default=None, pattern=r"^(draft|active|on_hold|closed)$")
 
 

@@ -45,7 +45,20 @@ literature and NYC LL144 / EEOC-style controls):
     quote that shares almost nothing with the actual resume text
     (`_verify_evidence`) — it exists to catch hallucinated evidence, not to
     punish the AI for not copying text 100% verbatim.
-11. These are enforced by `tests/test_scoring_principles.py`, not just
+11. Judge relative to the role's actual level and pay band, not one fixed
+    "impressive resume" ideal: an entry-level, lower-compensation role and a
+    senior/lead, higher-compensation role must never be judged against the
+    same technical-depth bar. "Good but still developing" is a legitimate
+    `confirmed` match for an entry-level criterion — it is not a gap
+    (`SENIORITY_GUIDANCE`, `_calibration_block`).
+12. Self-selected logistics are eligibility, not evidence to score: night
+    shifts, work-from-office, relocation, notice period and similar
+    conditions are things a candidate already agreed to by applying once the
+    JD stated them, and a resume rarely proves them either way. These belong
+    in `location_hours` (excluded from the numeric score, principle 8) and
+    get confirmed on the screening call — never scored, never a mandatory
+    knock-out (`scorecard.py: _is_logistics_condition`).
+13. These are enforced by `tests/test_scoring_principles.py`, not just
     described here — a change that violates one of these rules should fail
     that suite, on purpose.
 """
@@ -104,12 +117,13 @@ EVALUATION_SCHEMA = {
         "inconsistencies": {"type": "array", "items": {"type": "string"}},
         "verification_questions": {"type": "array", "items": {"type": "string"}},
         "executive_summary": {"type": "string"},
+        "calibration_notes": {"type": "string"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
     },
     "required": [
         "criterion_results", "relevant_experience_years", "key_strengths", "gaps",
         "risk_flags", "relevant_projects", "missing_information", "inconsistencies",
-        "verification_questions", "executive_summary", "confidence",
+        "verification_questions", "executive_summary", "calibration_notes", "confidence",
     ],
     "additionalProperties": False,
 }
@@ -144,6 +158,39 @@ recruiter:
   is accuracy, not leniency: an objective, whole-picture read is what avoids both
   unfairly punishing strong candidates AND rubber-stamping weak ones.
 
+ROLE-LEVEL CALIBRATION — read this before judging depth on any criterion:
+A resume is not judged against one fixed "impressive" ideal. It is judged against
+what THIS role, at THIS level and THIS pay band, actually requires. If the job
+details below state a seniority tier, compensation band, or a description of what
+"good enough" looks like at this level, use it:
+- An entry-level role paying an entry-level wage does not need — and should not be
+  scored as if it needs — staff/principal-level depth, architecture ownership, or
+  a "hotshot" pedigree. Good fundamentals plus the ability to learn on the job IS
+  the bar at that level; mark it confirmed, not partial or no_evidence, when a
+  candidate clearly clears that bar.
+- A senior/lead/staff role, conversely, should still be held to real depth,
+  ownership and scope — do not soften that bar just because you're being told not
+  to over-demand at the entry level elsewhere.
+- Never let a candidate's employer prestige, a "hotshot" resume, or credentials far
+  in excess of what the role and pay band call for substitute for evidence against
+  the actual criteria — over-qualification on paper is not itself confirmation of
+  fit, and under-qualification relative to a lower-paying, lower-seniority role is
+  not itself a gap.
+- calibration_notes: 2-4 sentences stating, in plain language, what depth/level you
+  calibrated your judgement to for THIS role (referencing tier/pay-band/"good
+  enough" context when given) and how that shaped your read of the evidence. This
+  is what lets a recruiter understand *why*, not just *what*, you scored — write it
+  for someone with no technical background.
+
+LOGISTICS ARE ELIGIBILITY, NOT EVIDENCE TO SCORE:
+Conditions like night shift, work-from-office, relocation, remote/hybrid, notice
+period, or willingness to travel are self-selected — a candidate already agreed to
+them by choosing to apply once the JD stated them, and a resume can rarely prove or
+disprove them anyway. Any criterion asking about these belongs in category=
+location_hours with status=needs_verification by default (confirm on the call);
+never mark them no_evidence/contradictory as if the resume should have addressed
+them, and never let them drive the score or a rejection.
+
 {FAIRNESS_RULES_PROMPT}
 
 EVIDENCE RULES:
@@ -172,8 +219,72 @@ EVIDENCE RULES:
 - confidence: high only when the resume is detailed and evidence is unambiguous."""
 
 
-def input_hash(redacted_text: str, scorecard: Scorecard) -> str:
-    payload = redacted_text + "||" + json.dumps(
+# Plain-language depth expectations per tier, threaded into the prompt so the
+# AI calibrates "confirmed" against what THIS level actually needs instead of
+# one fixed "impressive resume" ideal (scoring principle 11).
+SENIORITY_GUIDANCE = {
+    "entry": (
+        "Entry-level role. Candidates are typically 0-2 years in. Solid fundamentals, "
+        "clean basics, and evidence of learning quickly are the bar — not deep "
+        "specialisation, architecture ownership, or leadership scope. 'Good but still "
+        "developing' at this level is a genuine match, not a gap."
+    ),
+    "associate": (
+        "Associate-level role. Candidates are typically 1-3 years in with some "
+        "independent ownership of features/tasks, but still working within a "
+        "structure set by others. Do not expect senior-level system design or "
+        "cross-team leadership."
+    ),
+    "mid": (
+        "Mid-level role. Candidates should independently own reasonably-sized pieces "
+        "of work end to end. Expect solid, dependable depth in the core stack — not "
+        "necessarily org-wide architectural authority."
+    ),
+    "senior": (
+        "Senior role. Candidates should show real ownership: designing solutions, "
+        "not just implementing them, and influence beyond their own tickets. Hold "
+        "this bar — do not soften it just because other roles in this system are "
+        "calibrated lower."
+    ),
+    "lead_plus": (
+        "Lead/staff/principal-level role. Candidates should show scope beyond "
+        "individual delivery: technical direction, mentorship, or ownership across a "
+        "team or system. This is the one tier where a light or generic resume is a "
+        "real gap, not a false negative to correct for."
+    ),
+}
+
+
+def _calibration_block(job) -> str:
+    """Builds the role-level calibration context from job fields, when present.
+    Pure/deterministic (no LLM call) so it's directly unit-testable — see
+    tests/test_scoring_principles.py."""
+    lines = []
+    tier = (getattr(job, "seniority_tier", "") or "").strip()
+    if tier in SENIORITY_GUIDANCE:
+        lines.append(f"Seniority tier: {tier.replace('_', ' ')}. {SENIORITY_GUIDANCE[tier]}")
+    comp = (getattr(job, "compensation_range", "") or "").strip()
+    if comp:
+        lines.append(
+            f"Compensation band for this role: {comp}. Calibrate expected technical "
+            "depth to what a role actually paying this typically requires — do not "
+            "expect elite/top-tier-company depth on a modest budget, and do not "
+            "under-credit genuine depth on a senior budget."
+        )
+    good_enough = (getattr(job, "good_enough_note", "") or "").strip()
+    if good_enough:
+        lines.append(f"What \"good enough\" looks like for this role, per the hiring team: {good_enough}")
+    success = (getattr(job, "success_criteria", "") or "").strip()
+    if success:
+        lines.append(f"What success in the first 6-12 months looks like: {success}")
+    if not lines:
+        return ""
+    return "Role-level calibration for THIS job:\n" + "\n".join(f"- {l}" for l in lines)
+
+
+def input_hash(redacted_text: str, scorecard: Scorecard, job=None) -> str:
+    calibration = _calibration_block(job) if job is not None else ""
+    payload = redacted_text + "||" + calibration + "||" + json.dumps(
         [
             {
                 "id": c.id, "cat": c.category, "name": c.name,
@@ -186,10 +297,12 @@ def input_hash(redacted_text: str, scorecard: Scorecard) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def evaluate(redacted_text: str, scorecard: Scorecard, job_title: str) -> dict:
-    """Run the evaluation. Returns a dict ready to persist on Evaluation."""
+def evaluate(redacted_text: str, scorecard: Scorecard, job) -> dict:
+    """Run the evaluation against a Job (or any object exposing the same
+    attributes — title, seniority_tier, compensation_range, good_enough_note,
+    success_criteria). Returns a dict ready to persist on Evaluation."""
     try:
-        raw = _llm_evaluate(redacted_text, scorecard, job_title)
+        raw = _llm_evaluate(redacted_text, scorecard, job)
         engine = "llm"
     except llm.LLMUnavailable:
         raw = _deterministic_evaluate(redacted_text, scorecard)
@@ -211,6 +324,7 @@ def evaluate(redacted_text: str, scorecard: Scorecard, job_title: str) -> dict:
         "recommendation": recommendation,
         "confidence": raw.get("confidence", "low"),
         "executive_summary": raw.get("executive_summary", ""),
+        "calibration_notes": raw.get("calibration_notes", ""),
         "explanation": explanation,
         "criterion_results": results,
         "relevant_projects": raw.get("relevant_projects", [])[:8],
@@ -221,13 +335,16 @@ def evaluate(redacted_text: str, scorecard: Scorecard, job_title: str) -> dict:
     }
 
 
-def _llm_evaluate(redacted_text: str, scorecard: Scorecard, job_title: str) -> dict:
+def _llm_evaluate(redacted_text: str, scorecard: Scorecard, job) -> dict:
     criteria_block = "\n".join(
         f"- criterion_id={c.id} | category={c.category} | mandatory={c.is_mandatory} | "
         f"weight={c.weight} | {c.name}: {c.description}"
         for c in scorecard.criteria
     )
-    user = f"""Job title: {job_title}
+    calibration = _calibration_block(job)
+    user = f"""Job title: {getattr(job, "title", "") or "Not specified"}
+
+{calibration if calibration else "No role-level calibration details were provided for this job — judge against the criteria and their descriptions as written."}
 
 Approved scorecard criteria:
 {criteria_block}
@@ -458,11 +575,12 @@ def _recommend(score: float, mandatory_status: str, results: list, raw: dict,
 def build_recruiter_guidance(
     *, recommendation: str, score: float, mandatory_status: str,
     key_strengths: list, gaps: list, verification_questions: list,
-    criterion_results: list,
+    criterion_results: list, calibration_notes: str = "",
 ) -> dict:
     unclear = [r["name"] for r in (criterion_results or [])
                if r.get("status") == "needs_verification"]
     to_check = (verification_questions or unclear or gaps or [])[:3]
+    level_context = calibration_notes or ""
 
     if recommendation == "shortlist":
         return {
@@ -475,6 +593,7 @@ def build_recruiter_guidance(
             "next_step": "Move forward with a screening call.",
             "top_strengths": (key_strengths or [])[:3],
             "things_to_check_on_the_call": to_check,
+            "level_context": level_context,
         }
     if recommendation == "recruiter_review":
         if mandatory_status == "not_met":
@@ -497,6 +616,7 @@ def build_recruiter_guidance(
             "next_step": "Read the strengths and open questions below, then decide.",
             "top_strengths": (key_strengths or [])[:3],
             "things_to_check_on_the_call": to_check,
+            "level_context": level_context,
         }
     return {
         "tone": "poor",
@@ -509,6 +629,7 @@ def build_recruiter_guidance(
         "next_step": "Pass, unless you have outside knowledge of this candidate.",
         "top_strengths": (key_strengths or [])[:3],
         "things_to_check_on_the_call": to_check,
+        "level_context": level_context,
     }
 
 
@@ -523,6 +644,7 @@ def guidance_for_evaluation(evaluation: Evaluation) -> dict:
         gaps=evaluation.gaps or [],
         verification_questions=evaluation.verification_questions or [],
         criterion_results=evaluation.criterion_results or [],
+        calibration_notes=getattr(evaluation, "calibration_notes", "") or "",
     )
 
 
@@ -561,6 +683,9 @@ def _deterministic_evaluate(text: str, scorecard: Scorecard) -> dict:
         "verification_questions": [],
         "executive_summary": "Screened by the deterministic offline engine. Statuses reflect "
                              "keyword presence only and every result requires recruiter review.",
+        "calibration_notes": "Offline engine — role-level calibration (seniority tier, pay "
+                             "band, level expectations) was not applied. Judge level fit "
+                             "manually until the AI engine is available.",
         "confidence": "low",
     }
 

@@ -32,6 +32,9 @@ def _job_out(job: Job, db: Session | None = None) -> dict:
         "compensation_range": job.compensation_range,
         "notice_period_preference": job.notice_period_preference,
         "mandatory_conditions": job.mandatory_conditions,
+        "seniority_tier": job.seniority_tier,
+        "good_enough_note": job.good_enough_note,
+        "success_criteria": job.success_criteria,
         "status": job.status,
         "owner": job.owner.full_name if job.owner else "",
         "candidate_count": len(job.candidates),
@@ -100,7 +103,9 @@ def update_job(job_id: int, payload: JobUpdate, request: Request,
         raise HTTPException(status_code=404, detail="Job not found")
     changes = payload.model_dump(exclude_unset=True)
     jd_fields = {"description", "essential_skills", "preferred_skills",
-                 "mandatory_conditions", "min_experience_years", "qualifications"}
+                 "mandatory_conditions", "min_experience_years", "qualifications",
+                 "seniority_tier", "compensation_range", "good_enough_note",
+                 "success_criteria"}
     for key, value in changes.items():
         setattr(job, key, value)
     # Changing the requirement invalidates approval: scorecard must be re-approved.
@@ -200,3 +205,18 @@ def approve_scorecard(job_id: int, scorecard_id: int, request: Request,
                "version": scorecard.version}, ip=client_ip(request))
     db.commit()
     return _scorecard_out(scorecard)
+
+
+@router.delete("/{job_id}", status_code=204)
+def delete_job(job_id: int, request: Request,
+               user: User = Depends(require_recruiter), db: Session = Depends(get_db)):
+    """Removes a job and everything under it (scorecards, candidates, evaluations)."""
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    log_action(db, "job.deleted", user=user, entity_type="job", entity_id=job.id,
+               details={"title": job.title, "job_code": job.job_code,
+                        "candidate_count": len(job.candidates)}, ip=client_ip(request))
+    db.delete(job)
+    db.commit()
+    return None

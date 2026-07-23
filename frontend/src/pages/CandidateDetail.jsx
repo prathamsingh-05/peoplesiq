@@ -82,6 +82,7 @@ function AssessmentTab({ candidateId }) {
           {g.things_to_check_on_the_call?.length > 0 && (
             <p><b>Check on the call:</b> {g.things_to_check_on_the_call.join(' · ')}</p>
           )}
+          {g.level_context && <p className="small">{g.level_context}</p>}
           <p className="next-step">Next step: {g.next_step}</p>
         </div>
       )}
@@ -97,6 +98,12 @@ function AssessmentTab({ candidateId }) {
         <p>{ev.executive_summary}</p>
         <h3>Why this recommendation</h3>
         <p>{ev.explanation}</p>
+        {ev.calibration_notes && (
+          <>
+            <h3>How this was judged for this role</h3>
+            <p className="small muted">{ev.calibration_notes}</p>
+          </>
+        )}
       </div>
 
       <div className="grid cols-2">

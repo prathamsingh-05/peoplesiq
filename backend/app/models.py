@@ -91,6 +91,14 @@ class Job(Base):
     compensation_range: Mapped[str] = mapped_column(String(255), default="")
     notice_period_preference: Mapped[str] = mapped_column(String(255), default="")
     mandatory_conditions: Mapped[list] = mapped_column(JSON, default=list)
+    # Seniority/pay-band calibration (brief-independent addition): the screening
+    # engine reads these to judge candidates against what THIS role actually
+    # needs, not a one-size-fits-all "impressive resume" bar. An entry-level,
+    # 6 LPA role and a staff-level, 40 LPA role should never be screened to the
+    # same standard of technical depth.
+    seniority_tier: Mapped[str] = mapped_column(String(32), default="")  # entry/associate/mid/senior/lead_plus
+    good_enough_note: Mapped[str] = mapped_column(Text, default="")  # "what good enough looks like here"
+    success_criteria: Mapped[str] = mapped_column(Text, default="")  # first 6-12 months expectations
     status: Mapped[str] = mapped_column(String(32), default=JobStatus.draft.value)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -313,6 +321,10 @@ class Evaluation(Base):
     confidence: Mapped[str] = mapped_column(String(16), default="")          # high/medium/low
     executive_summary: Mapped[str] = mapped_column(Text, default="")
     explanation: Mapped[str] = mapped_column(Text, default="")               # why this recommendation
+    # How the engine calibrated its bar for THIS role (level/pay-band/what-good-
+    # looks-like) before judging evidence — surfaced to the recruiter so "why this
+    # score" is answerable in plain terms, not just "the model said so".
+    calibration_notes: Mapped[str] = mapped_column(Text, default="")
 
     # Per-criterion results: [{criterion_id, name, category, status, evidence,
     #   evidence_verified, weight, score, notes}] where status ∈

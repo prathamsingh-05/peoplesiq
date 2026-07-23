@@ -3,7 +3,12 @@ the top of services/screening.py. These exist so that a future change which
 violates one of those principles fails CI, on purpose — this is what turns
 "we fixed it" into "it can't quietly regress."
 """
-from app.services.screening import _compute_score, _recommend, _verify_evidence
+from types import SimpleNamespace
+
+from app.services.screening import (
+    _calibration_block, _compute_score, _recommend, _verify_evidence,
+)
+from app.services.scorecard import _deterministic_scorecard, _is_logistics_condition
 
 
 def _criterion(name, weight, status, mandatory=False, category="technical_skills"):
@@ -145,3 +150,86 @@ def test_verification_rejects_fabricated_evidence():
 
 def test_verification_rejects_empty_evidence():
     assert _verify_evidence("", "Any resume text here.") is False
+
+
+# ---------------------------------------------------------------------------
+# Principle: judge relative to the role's actual level and pay band, not one
+# fixed "impressive resume" ideal.
+# ---------------------------------------------------------------------------
+def _job(**overrides):
+    base = dict(
+        title="Backend Engineer", seniority_tier="", compensation_range="",
+        good_enough_note="", success_criteria="",
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def test_calibration_block_empty_when_no_context_given():
+    assert _calibration_block(_job()) == ""
+
+
+def test_calibration_block_reflects_entry_tier_guidance():
+    block = _calibration_block(_job(seniority_tier="entry", compensation_range="6 LPA"))
+    assert "entry" in block.lower()
+    assert "6 LPA" in block
+    # The whole point: entry-level guidance must not demand senior-level depth.
+    assert "not deep" in block.lower() or "developing" in block.lower()
+
+
+def test_calibration_block_reflects_senior_tier_guidance():
+    block = _calibration_block(_job(seniority_tier="senior"))
+    assert "senior" in block.lower()
+    assert "ownership" in block.lower()
+
+
+def test_calibration_block_includes_good_enough_and_success_criteria():
+    block = _calibration_block(_job(
+        good_enough_note="Can ship features with guidance.",
+        success_criteria="Owns one service end to end by month six.",
+    ))
+    assert "Can ship features with guidance." in block
+    assert "Owns one service end to end by month six." in block
+
+
+def test_calibration_block_ignores_unknown_tier_gracefully():
+    # An unrecognised/blank tier must not crash or fabricate guidance text.
+    block = _calibration_block(_job(seniority_tier="not-a-real-tier"))
+    assert "not-a-real-tier" not in block
+
+
+# ---------------------------------------------------------------------------
+# Principle: self-selected logistics (shift/WFO/relocation/notice period) are
+# eligibility conditions, never scored mandatory criteria.
+# ---------------------------------------------------------------------------
+def test_logistics_keywords_detected():
+    for cond in ["Willing to work night shifts", "Must work from office (WFO)",
+                 "Open to relocation", "30 days notice period", "Willing to travel"]:
+        assert _is_logistics_condition(cond), cond
+
+
+def test_non_logistics_condition_not_flagged():
+    assert not _is_logistics_condition("Valid AWS Solutions Architect certification")
+    assert not _is_logistics_condition("Active security clearance required")
+
+
+def _scorecard_job(mandatory_conditions):
+    return SimpleNamespace(
+        mandatory_conditions=mandatory_conditions, min_experience_years=0,
+        essential_skills=[], preferred_skills=[], qualifications="",
+        location="", working_hours="", work_model="",
+    )
+
+
+def test_deterministic_scorecard_routes_logistics_to_location_hours():
+    job = _scorecard_job(["Willing to work night shifts", "Active security clearance required"])
+    criteria = _deterministic_scorecard(job)
+    by_name = {c["name"]: c for c in criteria}
+
+    shift = by_name["Willing to work night shifts"]
+    assert shift["category"] == "location_hours"
+    assert shift["is_mandatory"] is False
+
+    clearance = by_name["Active security clearance required"]
+    assert clearance["category"] == "mandatory"
+    assert clearance["is_mandatory"] is True

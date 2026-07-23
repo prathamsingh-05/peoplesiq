@@ -40,10 +40,36 @@ export function GuidanceChip({ guidance }) {
   )
 }
 
+// Animated circular score ring — counts up from 0 on every mount/value change
+// so a freshly loaded leaderboard or a just-completed rescreen visibly
+// "arrives" rather than popping in as static text.
 export function Score({ value }) {
-  if (value === null || value === undefined) return <span className="muted">—</span>
-  const cls = value >= 70 ? 'hi' : value >= 45 ? 'mid' : 'lo'
-  return <span className={`score-ring ${cls}`}>{Math.round(value)}</span>
+  const target = value === null || value === undefined ? null : Math.round(value)
+  const [display, setDisplay] = useState(0)
+
+  useEffect(() => {
+    if (target === null) return undefined
+    let raf
+    const start = performance.now()
+    const duration = 600
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setDisplay(Math.round(target * eased))
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target])
+
+  if (target === null) return <span className="muted">—</span>
+  const cls = target >= 70 ? 'hi' : target >= 45 ? 'mid' : 'lo'
+  return (
+    <span className={`score-ring ${cls}`} style={{ '--pct': target }}>
+      <span className="score-ring-fill" />
+      <span className="score-ring-num">{display}</span>
+    </span>
+  )
 }
 
 export function Alert({ kind = 'info', children, onClose }) {
@@ -52,6 +78,15 @@ export function Alert({ kind = 'info', children, onClose }) {
     <div className={`alert ${kind}`}>
       {children}
       {onClose && <button className="btn sm secondary" style={{ marginLeft: 10 }} onClick={onClose}>✕</button>}
+    </div>
+  )
+}
+
+export function Spinner({ label = 'Loading…', inline = false }) {
+  return (
+    <div className={inline ? 'spinner-wrap inline' : 'spinner-wrap'}>
+      <span className="spinner" aria-hidden="true" />
+      {label && <span className="small muted">{label}</span>}
     </div>
   )
 }

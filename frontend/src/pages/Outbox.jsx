@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
-import { Alert, Badge, fmtDate, useAsync } from '../components.jsx'
+import { Alert, Badge, Spinner, fmtDate, useAsync } from '../components.jsx'
 
 export default function Outbox() {
   const [filter, setFilter] = useState('')
@@ -30,7 +30,7 @@ export default function Outbox() {
         ))}
       </div>
       <div className="card">
-        {emails.loading ? <p>Loading…</p> : (
+        {emails.loading ? <Spinner /> : (
           <table className="data">
             <thead><tr><th>Candidate</th><th>Template</th><th>Subject</th><th>To</th>
               <th>Status</th><th>Scheduled</th><th>Sent</th><th></th></tr></thead>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
-import { Alert, Badge, useAsync } from '../components.jsx'
+import { Alert, Badge, Spinner, useAsync } from '../components.jsx'
 
 const EMPTY = {
   title: '', client_name: 'OculusIT', description: '', location: '',
@@ -107,7 +107,7 @@ export default function Jobs() {
         </form>
       )}
 
-      {loading ? <p>Loading…</p> : (
+      {loading ? <Spinner /> : (
         <div className="card">
           <table className="data">
             <thead><tr>

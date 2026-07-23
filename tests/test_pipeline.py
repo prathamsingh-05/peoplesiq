@@ -133,8 +133,12 @@ def test_full_pipeline(auth_client):
     assert any(r["evidence"] for r in evaluation["criterion_results"])
     assert evaluation["explanation"]
 
-    # Screening the same resume again must give the identical result (consistency).
+    # Rescreen is an explicit request for a fresh look, not a cache replay —
+    # it must create a new evaluation (not silently reuse the old DB row),
+    # even though the deterministic offline engine's score is reproducible
+    # for identical input.
     again = client.post(f"/api/candidates/{strong_id}/rescreen").json()
+    assert again["id"] != evaluation["id"]
     assert again["overall_score"] == evaluation["overall_score"]
     assert again["recommendation"] == evaluation["recommendation"]
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, downloadFile } from '../api.js'
-import { Alert, Badge, Score, fmtDate, useAsync } from '../components.jsx'
+import { Alert, Badge, Score, Spinner, fmtDate, useAsync } from '../components.jsx'
 
 export default function Tracker() {
   const [q, setQ] = useState('')
@@ -33,7 +33,7 @@ export default function Tracker() {
           onClick={() => { setQ(''); setStatus('') }}>Clear</button>}
       </div>
       {error && <Alert kind="error">{error}</Alert>}
-      {loading && <p>Loading…</p>}
+      {loading && <Spinner />}
       <div className="card" style={{ overflowX: 'auto' }}>
         <table className="data">
           <thead><tr>

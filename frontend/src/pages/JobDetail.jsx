@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, downloadFile } from '../api.js'
-import { Alert, Badge, GuidanceChip, Score, fmtDate, useAsync } from '../components.jsx'
+import { Alert, Badge, GuidanceChip, Score, Spinner, fmtDate, useAsync } from '../components.jsx'
 
 export default function JobDetail() {
   const { jobId } = useParams()
@@ -10,7 +10,7 @@ export default function JobDetail() {
   const [deleteError, setDeleteError] = useState('')
   const job = useAsync(() => api.get(`/api/jobs/${jobId}`), [jobId])
 
-  if (job.loading) return <p>Loading…</p>
+  if (job.loading) return <Spinner />
   if (job.error) return <Alert kind="error">{job.error}</Alert>
   const data = job.data
 
@@ -224,7 +224,7 @@ function UploadTab({ jobId, hasScorecard }) {
 
       <div className="card">
         <h2>Processing log</h2>
-        {log.loading ? <p>Loading…</p> : (
+        {log.loading ? <Spinner /> : (
           <table className="data">
             <thead><tr><th>Time</th><th>File</th><th>Status</th><th>Detail</th></tr></thead>
             <tbody>
@@ -338,7 +338,7 @@ function LeaderboardTab({ jobId, hasScorecard }) {
         </div>
       )}
 
-      {board.loading ? <p>Loading…</p> : (
+      {board.loading ? <Spinner /> : (
         <table className="data">
           <thead><tr>
             <th></th><th>#</th><th>Candidate</th><th>Guidance</th><th>Match</th><th>Mandatory</th><th>Rel. exp</th>

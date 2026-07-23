@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 from app.services.screening import (
     _calibration_block, _compute_score, _detect_inconsistent_criteria,
-    _detect_injection_signals, _deterministic_evaluate, _recommend, _token_variants,
-    _verify_evidence,
+    _detect_injection_signals, _deterministic_evaluate, _lpa_band_guidance, _parse_lpa,
+    _recommend, _token_variants, _verify_evidence,
 )
 from app.services.scorecard import _deterministic_scorecard, _is_logistics_condition
 
@@ -373,3 +373,43 @@ def test_deterministic_engine_recognizes_skill_alias_not_exact_wording():
     raw = _deterministic_evaluate(text, scorecard)
     result = raw["criterion_results"][0]
     assert result["status"] != "no_evidence"
+
+
+# ---------------------------------------------------------------------------
+# Principle: pay band is a concrete, objective calibration anchor — a
+# mid-qualified candidate applying to an entry/junior-pay role is a good fit,
+# not a shortfall.
+# ---------------------------------------------------------------------------
+def test_parse_lpa_reads_range_midpoint():
+    assert _parse_lpa("₹6-8 LPA") == 7.0
+    assert _parse_lpa("12-16 lakh") == 14.0
+    assert _parse_lpa("6.5 LPA") == 6.5
+
+
+def test_parse_lpa_ignores_implausible_figures():
+    assert _parse_lpa("") is None
+    assert _parse_lpa("Not specified") is None
+    assert _parse_lpa("600000-700000") is None  # full rupee figures, not LPA
+
+
+def test_lpa_band_guidance_frames_entry_pay_as_good_fit_not_shortfall():
+    guidance = _lpa_band_guidance("₹6-7 LPA")
+    assert "good fit" in guidance.lower()
+    assert "entry" in guidance.lower() or "junior" in guidance.lower()
+
+
+def test_lpa_band_guidance_expects_real_depth_at_senior_pay():
+    guidance = _lpa_band_guidance("30 LPA")
+    assert "genuine gap" in guidance.lower() or "expect scope" in guidance.lower()
+
+
+def test_lpa_band_guidance_empty_when_unparseable():
+    assert _lpa_band_guidance("Competitive") == ""
+
+
+def test_calibration_block_includes_lpa_band_guidance_from_compensation_alone():
+    """Calibration must work even when a job has no explicit seniority_tier
+    set — the compensation figure alone should be enough to anchor depth
+    expectations."""
+    block = _calibration_block(_job(compensation_range="₹6-7 LPA"))
+    assert "good fit" in block.lower()

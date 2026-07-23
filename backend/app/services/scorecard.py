@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..models import CriterionCategory, Job
 from . import llm
+from .screening import _lpa_band_guidance
 
 SCORECARD_SCHEMA = {
     "type": "object",
@@ -110,7 +111,9 @@ Qualifications: {job.qualifications or 'See description'}
 Notice-period preference: {job.notice_period_preference or 'Not specified'}
 Mandatory screening conditions: {'; '.join(job.mandatory_conditions) or 'None listed'}
 Seniority tier: {job.seniority_tier or 'Not specified'}
-Compensation band: {job.compensation_range or 'Not specified'}
+Compensation band: {job.compensation_range or 'Not specified'}{
+    (' — ' + _lpa_band_guidance(job.compensation_range)) if _lpa_band_guidance(job.compensation_range) else ''
+}
 What "good enough" looks like at this level: {job.good_enough_note or 'Not specified'}
 Success criteria (first 6-12 months): {job.success_criteria or 'Not specified'}
 

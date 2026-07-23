@@ -58,6 +58,7 @@ def _evaluation_out(evaluation: Evaluation) -> dict:
         "risk_flags": evaluation.risk_flags,
         "recommendation": evaluation.recommendation,
         "confidence": evaluation.confidence,
+        "recruiter_guidance": engine.guidance_for_evaluation(evaluation),
         "executive_summary": evaluation.executive_summary,
         "explanation": evaluation.explanation,
         "criterion_results": evaluation.criterion_results,

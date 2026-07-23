@@ -45,7 +45,16 @@ Rules:
   seniority (level/team scope), location_hours (only if the JD states an explicit
   location/shift requirement), stability (career progression — an employment gap must
   NEVER be a criterion), preferred (nice-to-haves).
-- Mark is_mandatory=true only for genuine knock-out requirements.
+- Mark is_mandatory=true sparingly — typically only 1-3 criteria per scorecard, and
+  only for genuine knock-out requirements explicitly stated in the JD (e.g. a required
+  license, clearance, or work authorization). Do not mark ordinary skills or experience
+  levels as mandatory just because the JD lists them under "requirements" — most JD
+  "requirements" sections are the target profile, not hard knockouts.
+- Write each criterion broadly enough to credit equivalent or adjacent experience, not
+  only an exact keyword match. Prefer "cloud infrastructure experience (AWS, Azure, or
+  GCP)" over "AWS Lambda specifically," unless the JD names one exact tool as required.
+  A resume that demonstrates the underlying capability in different words should still
+  be able to earn "confirmed" or "partial" evidence, not "no_evidence" on a technicality.
 - Weights: 1.0 (standard) to 3.0 (critical); preferred criteria 0.5-1.0.
 - Each description must state what EVIDENCE in a resume would satisfy the criterion.
 - Never create criteria about age, gender, marital status, religion, caste, nationality,

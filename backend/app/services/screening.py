@@ -20,9 +20,34 @@ literature and NYC LL144 / EEOC-style controls):
     result (brief §13).
 6.  Recall-biased: borderline candidates go to `recruiter_review`, never
     straight to rejection — the most expensive error is losing a strong
-    candidate.
-7.  Guardrails: a `do_not_shortlist` without an explanation is downgraded to
-    review; employment gaps and formatting can never cause rejection.
+    candidate. This is enforced at every point that can produce a negative
+    outcome, not just the score threshold:
+      - A single missing mandatory criterion routes to review, not rejection
+        — only 2+ genuine mandatory gaps auto-reject (`_recommend`).
+      - Low engine confidence or the offline fallback engine always routes
+        negatives to review instead of rejection.
+      - A `do_not_shortlist` with no explanation is never allowed through.
+7.  Requirement tiers matter, not just weight: criteria explicitly marked
+    "preferred" (nice-to-have) can only add bonus points, never subtract —
+    a candidate isn't a worse fit for lacking something the scorecard itself
+    calls optional (`BONUS_CATEGORIES`, `_compute_score`).
+8.  Structural blind spots don't count against candidates: criteria a resume
+    can categorically never prove (shift/location/notice-period fit) are
+    excluded from the numeric score entirely, not just soft-penalised —
+    otherwise every candidate loses the same fixed amount for something no
+    resume could ever answer (`SCORE_EXCLUDED_CATEGORIES`).
+9.  Partial and unverifiable evidence still counts: `needs_verification`
+    means real signal exists that just isn't fully confirmable from text
+    alone — that is far closer to a match than no evidence at all, and is
+    scored accordingly (`STATE_SCORES`).
+10. Verification catches fabrication, not phrasing: quote verification is
+    tolerant of paraphrasing/reordering/whitespace drift and only rejects a
+    quote that shares almost nothing with the actual resume text
+    (`_verify_evidence`) — it exists to catch hallucinated evidence, not to
+    punish the AI for not copying text 100% verbatim.
+11. These are enforced by `tests/test_scoring_principles.py`, not just
+    described here — a change that violates one of these rules should fail
+    that suite, on purpose.
 """
 from __future__ import annotations
 
@@ -37,10 +62,15 @@ from .fairness import FAIRNESS_RULES_PROMPT
 EVIDENCE_STATES = ["confirmed", "partial", "no_evidence", "contradictory", "needs_verification"]
 
 # Score contribution of each evidence state (fraction of criterion weight).
+# needs_verification means a real claim exists in the resume but can't be
+# fully confirmed from text alone (e.g. "led backend development" for a
+# criterion asking specifically about API design) — that's meaningfully
+# different from no_evidence (nothing addresses it at all), so it earns real
+# partial credit rather than being scored almost the same as a total gap.
 STATE_SCORES = {
     "confirmed": 1.0,
     "partial": 0.55,
-    "needs_verification": 0.35,
+    "needs_verification": 0.5,
     "no_evidence": 0.0,
     "contradictory": 0.0,
 }
@@ -89,6 +119,31 @@ decision-SUPPORT system. You assess one resume against an approved job scorecard
 A human recruiter makes every final decision; your job is rigorous, evidence-linked
 analysis.
 
+Evaluate the way an experienced, senior recruiter would — someone who has read
+thousands of resumes and judges the whole picture, not a keyword scanner. A senior
+recruiter:
+- Reads the resume as a coherent career story and asks "has this person plausibly
+  done the work this criterion is asking about," not "does this exact phrase appear."
+  Someone who "built and shipped backend services handling millions of requests"
+  has demonstrated scalable-systems experience even if the resume never uses the
+  words "scalable" or "high-throughput."
+- Never decides a criterion on the presence or absence of one or two words in
+  isolation. Read the surrounding role, responsibilities, and project descriptions
+  for context before concluding there's no evidence.
+- Recognizes transferable and adjacent experience for what it is. Someone with
+  deep experience in one cloud platform, one SQL database, or one modern web
+  framework is very likely capable with a closely adjacent one — that's real
+  signal, worth "partial" at minimum, not "no_evidence" because the resume names
+  a different specific tool than the scorecard does.
+- Weighs the candidate's overall trajectory and seniority, not just line-item
+  keyword presence — a candidate whose whole career has clearly operated at or
+  above the level a criterion describes shouldn't lose credit purely because they
+  didn't spell out that exact criterion in those exact terms.
+- Is honest about genuine gaps. This is not about inflating scores — a resume
+  that truly shows nothing relevant to a criterion is still no_evidence. The goal
+  is accuracy, not leniency: an objective, whole-picture read is what avoids both
+  unfairly punishing strong candidates AND rubber-stamping weak ones.
+
 {FAIRNESS_RULES_PROMPT}
 
 EVIDENCE RULES:
@@ -103,6 +158,11 @@ EVIDENCE RULES:
   needs_verification — a claim exists but is vague/unverifiable from the resume alone
                         (also use for location/shift/notice-period items a resume
                         rarely proves)
+- A criterion does not require an exact keyword match. If the resume demonstrates the
+  underlying capability in different words or via a closely adjacent tool/technology
+  (e.g. the criterion asks about "cloud infrastructure" and the resume shows AWS
+  work), mark it confirmed or partial on that evidence — do not mark no_evidence on a
+  pure terminology technicality when the substance is genuinely present.
 - relevant_experience_years = years in roles genuinely relevant to THIS job, computed
   from the dated work history (not the candidate's own total claim).
 - missing_information: facts the recruiter must collect (compensation, notice period, etc.).
@@ -191,19 +251,32 @@ def _normalise_for_match(text: str) -> str:
 
 
 def _verify_evidence(evidence: str, source: str) -> bool:
-    """A quote counts as verified when it (or 80% of its 5-word shingles)
-    appears in the source text — tolerant of whitespace/punctuation drift."""
+    """A quote counts as verified when it's a close match to resume text —
+    exact substring, or close enough (by word overlap) that it clearly
+    reflects real content rather than a fabricated claim. Deliberately
+    order-independent and tolerant of minor rewording, dropped filler words,
+    or whitespace/punctuation drift: this check exists to catch genuine
+    hallucination (a "quote" that shares almost nothing with the actual
+    resume), not to penalise the AI for not copying text 100% verbatim.
+
+    A contiguous n-gram ("shingle") match was tried first, but a single
+    dropped or reordered filler word (e.g. paraphrasing "Python and AWS" as
+    "Python, AWS") shifts every subsequent shingle out of alignment and
+    fails the whole check even though the evidence is clearly genuine — so
+    this uses plain word-set overlap instead, which doesn't care about order
+    or position at all.
+    """
     if not evidence:
         return False
     ev, src = _normalise_for_match(evidence), _normalise_for_match(source)
     if ev in src:
         return True
     words = ev.split()
-    if len(words) < 5:
+    if not words:
         return False
-    shingles = [" ".join(words[i:i + 5]) for i in range(len(words) - 4)]
-    hits = sum(1 for s in shingles if s in src)
-    return hits / len(shingles) >= 0.8
+    src_words = set(src.split())
+    hits = sum(1 for w in words if w in src_words)
+    return hits / len(words) >= 0.7
 
 
 def _reconcile_criteria(raw_results: list, scorecard: Scorecard, source_text: str) -> list:
@@ -255,10 +328,36 @@ def _reconcile_criteria(raw_results: list, scorecard: Scorecard, source_text: st
     return [seen[c.id] for c in scorecard.criteria]
 
 
+# Categories the engine itself documents as "a resume rarely proves" (see the
+# needs_verification definition in _SYSTEM below) — these belong in the call-
+# verification list, not the numeric score. A candidate isn't a worse fit
+# because their resume doesn't restate the office location or shift pattern.
+SCORE_EXCLUDED_CATEGORIES = {"location_hours"}
+
+# "preferred" criteria are nice-to-haves by definition (the scorecard prompt
+# calls them that explicitly). A real recruiter doesn't mark someone down for
+# lacking a nice-to-have — they get extra credit for having one. So preferred
+# criteria are scored separately and can only add to the core score, never
+# subtract from it, capped so they can't outweigh the actual requirements.
+BONUS_CATEGORIES = {"preferred"}
+MAX_BONUS_POINTS = 10.0
+
+
 def _compute_score(results: list) -> tuple[float, str]:
-    total_weight = sum(r["weight"] for r in results) or 1.0
-    earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in results)
+    core = [r for r in results
+            if r["category"] not in SCORE_EXCLUDED_CATEGORIES
+            and r["category"] not in BONUS_CATEGORIES]
+    if not core:
+        core = [r for r in results if r["category"] not in SCORE_EXCLUDED_CATEGORIES] or results
+    total_weight = sum(r["weight"] for r in core) or 1.0
+    earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in core)
     score = 100.0 * earned / total_weight
+
+    bonus = [r for r in results if r["category"] in BONUS_CATEGORIES]
+    bonus_weight = sum(r["weight"] for r in bonus)
+    if bonus_weight:
+        bonus_earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in bonus)
+        score = min(100.0, score + MAX_BONUS_POINTS * bonus_earned / bonus_weight)
 
     mandatory = [r for r in results if r["is_mandatory"]]
     if not mandatory:
@@ -280,10 +379,25 @@ def _recommend(score: float, mandatory_status: str, results: list, raw: dict,
     if mandatory_status == "not_met":
         failed = [r["name"] for r in results
                   if r["is_mandatory"] and r["status"] in ("no_evidence", "contradictory")]
-        recommendation = "do_not_shortlist"
-        reasons.append(
-            "Mandatory criteria without supporting evidence: " + "; ".join(failed) + "."
-        )
+        # Recall bias applies here too: one missing mandatory item is often a
+        # resume that just didn't spell it out, not proof the candidate lacks
+        # it — that's exactly what the screening call is for. Only route
+        # straight to rejection when the resume fails on multiple genuine
+        # knock-outs at once, which is a much stronger signal of poor fit.
+        if len(failed) >= 2:
+            recommendation = "do_not_shortlist"
+            reasons.append(
+                "Multiple mandatory criteria without supporting evidence: "
+                + "; ".join(failed) + "."
+            )
+        else:
+            recommendation = "recruiter_review"
+            reasons.append(
+                f"One mandatory criterion isn't confirmed by the resume text ({failed[0]}). "
+                "Routed to recruiter review rather than automatic rejection — a single gap "
+                "may reflect incomplete resume detail rather than an actual mismatch; verify "
+                "on the call."
+            )
     elif score >= SHORTLIST_THRESHOLD and mandatory_status == "met":
         recommendation = "shortlist"
         confirmed = [r["name"] for r in results if r["status"] == "confirmed"][:5]
@@ -328,6 +442,88 @@ def _recommend(score: float, mandatory_status: str, results: list, raw: dict,
         explanation = ("Downgraded to recruiter review: a negative recommendation "
                        "without explanation is not permitted.")
     return recommendation, explanation
+
+
+# ---------------------------------------------------------------------------
+# Plain-language decision guidance
+#
+# Everything above this line produces an accurate result; nothing about it
+# requires a recruiter to understand evidence states, weights, or what
+# "mandatory_status: partially_met" means. This translates that result into
+# what a recruiter with no technical background actually needs: a clear
+# headline, why in plain English, and what to do next. It's computed from
+# the same evaluate() output already produced — not a separate AI call — so
+# it can never disagree with the score/recommendation it's explaining.
+# ---------------------------------------------------------------------------
+def build_recruiter_guidance(
+    *, recommendation: str, score: float, mandatory_status: str,
+    key_strengths: list, gaps: list, verification_questions: list,
+    criterion_results: list,
+) -> dict:
+    unclear = [r["name"] for r in (criterion_results or [])
+               if r.get("status") == "needs_verification"]
+    to_check = (verification_questions or unclear or gaps or [])[:3]
+
+    if recommendation == "shortlist":
+        return {
+            "tone": "good",
+            "headline": "Strong match — recommended to shortlist",
+            "reason_in_plain_english": (
+                "This resume clearly shows what the role needs, and everything on "
+                "your must-have list is backed up by the resume."
+            ),
+            "next_step": "Move forward with a screening call.",
+            "top_strengths": (key_strengths or [])[:3],
+            "things_to_check_on_the_call": to_check,
+        }
+    if recommendation == "recruiter_review":
+        if mandatory_status == "not_met":
+            reason = (
+                "Most of this looks like a real fit, but one thing on your must-have "
+                "list isn't spelled out in the resume. That's often just a gap in how "
+                "the resume is written, not proof the candidate lacks it — worth "
+                "checking before you decide either way."
+            )
+        else:
+            reason = (
+                "There's real strength here, but a few things aren't fully confirmed "
+                "by the resume alone. Use the call to fill in the blanks below before "
+                "you decide."
+            )
+        return {
+            "tone": "review",
+            "headline": "Worth a closer look before deciding",
+            "reason_in_plain_english": reason,
+            "next_step": "Read the strengths and open questions below, then decide.",
+            "top_strengths": (key_strengths or [])[:3],
+            "things_to_check_on_the_call": to_check,
+        }
+    return {
+        "tone": "poor",
+        "headline": "Not a fit for this role, based on the resume",
+        "reason_in_plain_english": (
+            "The resume doesn't show what this role needs. If you know something "
+            "about this candidate the resume doesn't show, trust your judgement — "
+            "you can still shortlist them manually."
+        ),
+        "next_step": "Pass, unless you have outside knowledge of this candidate.",
+        "top_strengths": (key_strengths or [])[:3],
+        "things_to_check_on_the_call": to_check,
+    }
+
+
+def guidance_for_evaluation(evaluation: Evaluation) -> dict:
+    """Convenience wrapper so callers don't need to know the field names
+    build_recruiter_guidance expects — just pass a stored Evaluation row."""
+    return build_recruiter_guidance(
+        recommendation=evaluation.recommendation,
+        score=evaluation.overall_score,
+        mandatory_status=evaluation.mandatory_status,
+        key_strengths=evaluation.key_strengths or [],
+        gaps=evaluation.gaps or [],
+        verification_questions=evaluation.verification_questions or [],
+        criterion_results=evaluation.criterion_results or [],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +588,7 @@ def leaderboard_row(evaluation: Evaluation, rank: int, candidate) -> dict:
         "risk_flags": evaluation.risk_flags,
         "recommendation": evaluation.recommendation,
         "confidence": evaluation.confidence,
+        "recruiter_guidance": guidance_for_evaluation(evaluation),
         "evidence": [
             {"criterion": r["name"], "status": r["status"], "evidence": r["evidence"]}
             for r in evaluation.criterion_results

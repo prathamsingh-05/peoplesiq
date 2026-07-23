@@ -115,6 +115,18 @@ label.field input, label.field select, label.field textarea { margin-top: 4px; f
 .alert.error { background: var(--bad-soft); color: var(--bad); }
 .alert.success { background: var(--ok-soft); color: var(--ok); }
 .alert.info { background: var(--accent-soft); color: var(--navy-2); }
+.alert.warn { background: var(--warn-soft); color: var(--warn); }
+
+.guidance-banner { padding: 18px 20px; border-radius: 10px; margin-bottom: 16px; }
+.guidance-banner.good { background: var(--ok-soft); }
+.guidance-banner.review { background: var(--warn-soft); }
+.guidance-banner.poor { background: var(--bad-soft); }
+.guidance-banner h2 { margin: 0 0 6px; font-size: 19px; }
+.guidance-banner.good h2 { color: var(--ok); }
+.guidance-banner.review h2 { color: var(--warn); }
+.guidance-banner.poor h2 { color: var(--bad); }
+.guidance-banner p { margin: 4px 0; }
+.guidance-banner .next-step { font-weight: 700; margin-top: 10px; }
 
 .login-wrap {
   min-height: 100vh; display: flex; align-items: center; justify-content: center;

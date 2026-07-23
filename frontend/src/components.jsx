@@ -25,6 +25,20 @@ export function Badge({ value }) {
   return <span className={`badge ${cls}`}>{String(value).replaceAll('_', ' ')}</span>
 }
 
+const GUIDANCE_LABEL = { good: 'Strong match', review: 'Review closer', poor: 'Not a fit' }
+const GUIDANCE_CLASS = { good: 'ok', review: 'warn', poor: 'bad' }
+
+// Plain-language stand-in for a recruiter with no background in how the
+// scoring works — a scannable label instead of "recommendation: recruiter_review".
+export function GuidanceChip({ guidance }) {
+  if (!guidance) return <span className="muted">—</span>
+  return (
+    <span className={`badge ${GUIDANCE_CLASS[guidance.tone] || 'info'}`} title={guidance.reason_in_plain_english}>
+      {GUIDANCE_LABEL[guidance.tone] || guidance.headline}
+    </span>
+  )
+}
+
 export function Score({ value }) {
   if (value === null || value === undefined) return <span className="muted">—</span>
   const cls = value >= 70 ? 'hi' : value >= 45 ? 'mid' : 'lo'

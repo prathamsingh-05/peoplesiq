@@ -149,3 +149,7 @@ def test_responsible_ai_report(auth_client):
     assert report["protected_class_impact_ratio"] is None    # deliberately not stored
     assert "impact_ratio_note" in report
     assert set(report["health"]) == {"evidence_coverage_ok", "explanation_coverage_ok", "agreement_ok"}
+    # Recruiter-override learning loop — present even with zero disagreement cases so far.
+    assert report["ai_missed_common_criteria"] == []
+    assert report["ai_overselected_common_criteria"] == []
+    assert "override_pattern_note" in report

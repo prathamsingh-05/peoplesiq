@@ -104,6 +104,18 @@ def test_talent_rediscovery(auth_client):
     target_candidates = client.get(f"/api/jobs/{target}/candidates").json()
     assert any("Rediscovered from" in c["source"] for c in target_candidates)
 
+    # Cross-job history: the same person now has a record on both jobs, and
+    # each one's history endpoint should surface the other.
+    target_arjun_id = next(
+        c["id"] for c in target_candidates if "Arjun" in c["full_name"])
+    source_history = client.get(f"/api/candidates/{arjun['candidate_id']}/history").json()
+    assert any(h["job_id"] == target for h in source_history)
+    target_history = client.get(f"/api/candidates/{target_arjun_id}/history").json()
+    assert any(h["job_id"] == source for h in target_history)
+    # The unrelated candidate has no cross-job history at all.
+    meera = next(r for r in board if "Meera" in r["candidate"])
+    assert client.get(f"/api/candidates/{meera['candidate_id']}/history").json() == []
+
 
 def test_bulk_decisions_and_search(auth_client):
     client = auth_client

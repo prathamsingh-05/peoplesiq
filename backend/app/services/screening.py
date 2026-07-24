@@ -120,7 +120,13 @@ literature and NYC LL144 / EEOC-style controls):
     that's a signal to question the requirement, not proof every candidate
     individually is weak. Computed deterministically from stored evaluations,
     no extra AI call (`pool_insight`).
-20. These are enforced by `tests/test_scoring_principles.py`, not just
+20. Risk signals are flagged, never scored: over-qualification-driven
+    retention risk, tenure/job-hopping patterns, and low-specificity
+    ("generic-sounding") resumes are things a senior recruiter would raise on
+    the call — they go in risk_flags for the recruiter's attention and never
+    move the evidence-based score, exactly like career gaps and logistics
+    (principles 8, 12) already don't.
+21. These are enforced by `tests/test_scoring_principles.py`, not just
     described here — a change that violates one of these rules should fail
     that suite, on purpose.
 """
@@ -369,6 +375,29 @@ TECHNICAL SKILLS — RECOGNIZE THEM ACCURATELY, THEN WEIGHT THEM BY WHAT THE JD 
   your judgement of overall fit; skills marked preferred/nice-to-have are exactly
   that — don't let missing or weak evidence on a preferred skill drag down your read
   of a candidate who is strong on the essentials.
+
+RISK SIGNALS WORTH FLAGGING — put these in risk_flags, never in the score:
+A senior recruiter notices things worth a conversation on the call without
+letting them affect the evidence-based score itself. Use risk_flags for:
+- Retention risk from over-qualification: when a candidate's evidenced level
+  clearly and substantially exceeds what this role/pay-band calls for (not
+  just "strong," but staff-level experience against an entry-level role, for
+  example), flag it constructively for the recruiter to probe motivation on
+  the call — "why are you interested in this role at this level/pay" — never
+  as a mark against the candidate, and never as a reason to lower the score.
+- Tenure patterns: if the dated work history shows a consistent pattern of
+  short stints (multiple roles under roughly a year, without an obvious
+  explanation like contract work), flag it neutrally as worth asking about —
+  exactly like career gaps, this is context to gather on the call, not
+  evidence to score against. A single short stint or an explained pattern
+  (contracting, acquisitions, layoffs) is not worth flagging at all.
+- Resume specificity: if a resume leans heavily on generic, buzzword-style
+  claims with few verifiable specifics (no company names, dates, concrete
+  outcomes, or named technologies/projects backing them up), flag that the
+  resume is light on specifics and claims should be verified on the call.
+  This is a verification signal, not a score penalty — principle 17 (score
+  substance, not writing) still applies; a resume can be plainly written and
+  highly specific at the same time, which is a fine resume, not a risk.
 
 LOGISTICS ARE ELIGIBILITY, NOT EVIDENCE TO SCORE:
 Conditions like night shift, work-from-office, relocation, remote/hybrid, notice
@@ -1053,20 +1082,32 @@ def build_recruiter_guidance(
             "points_to_shortlist": points_needed,
             "closing_the_gap": closing_the_gap,
         }
+    # A hard mandatory-gap knock-out (principle 6) isn't fixable by score
+    # alone, so "closing the gap" math only makes sense — and is only shown —
+    # for a purely score-driven do_not_shortlist.
+    show_gap = mandatory_status != "not_met" and bool(closing_the_gap)
+    reason = (
+        "The resume doesn't show what this role needs. If you know something "
+        "about this candidate the resume doesn't show, trust your judgement — "
+        "you can still shortlist them manually."
+    )
+    if show_gap:
+        reason += (
+            f" If you wanted to reconsider: they're about {points_needed:.0f} points off "
+            "the shortlist bar, and confirming " +
+            ", ".join(c["criterion"] for c in closing_the_gap) +
+            " would close most of that gap."
+        )
     return {
         "tone": "poor",
         "headline": "Not a fit for this role, based on the resume",
-        "reason_in_plain_english": (
-            "The resume doesn't show what this role needs. If you know something "
-            "about this candidate the resume doesn't show, trust your judgement — "
-            "you can still shortlist them manually."
-        ),
+        "reason_in_plain_english": reason,
         "next_step": "Pass, unless you have outside knowledge of this candidate.",
         "top_strengths": (key_strengths or [])[:3],
         "things_to_check_on_the_call": to_check,
         "level_context": level_context,
-        "points_to_shortlist": 0.0,
-        "closing_the_gap": [],
+        "points_to_shortlist": points_needed if show_gap else 0.0,
+        "closing_the_gap": closing_the_gap if show_gap else [],
     }
 
 

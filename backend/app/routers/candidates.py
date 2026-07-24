@@ -221,6 +221,43 @@ def _log(db: Session, job_id: int, batch_id: str, filename: str, status: str,
                          status=status, message=message, candidate_id=candidate_id))
 
 
+def find_candidate_history(db: Session, candidate: Candidate) -> list[dict]:
+    """Other applications by the same person, across every job — same
+    normalized email/phone match used for within-job duplicate detection
+    (_find_content_duplicate), just not scoped to one job. A real recruiter
+    remembers (or at least can look up) whether they've seen someone before;
+    without this, every screening treats the candidate as a stranger even if
+    they applied for three other roles last quarter."""
+    email = resume_parser.normalise_email(candidate.email)
+    phone = resume_parser.normalise_phone(candidate.phone)
+    if not email and not phone:
+        return []
+    others = (
+        db.query(Candidate)
+        .filter(Candidate.id != candidate.id, Candidate.job_id != candidate.job_id)
+        .all()
+    )
+    matches = []
+    for other in others:
+        same_email = bool(email) and resume_parser.normalise_email(other.email) == email
+        same_phone = (bool(phone) and len(phone) >= 10
+                      and resume_parser.normalise_phone(other.phone) == phone)
+        if not (same_email or same_phone):
+            continue
+        latest = other.evaluations[0] if other.evaluations else None
+        matches.append({
+            "candidate_id": other.id, "candidate_code": other.candidate_code,
+            "job_id": other.job_id, "job_code": other.job.job_code if other.job else "",
+            "job_title": other.job.title if other.job else "",
+            "status": other.status, "recruiter_decision": other.recruiter_decision,
+            "overall_score": latest.overall_score if latest else None,
+            "recommendation": latest.recommendation if latest else None,
+            "applied_at": other.received_at.isoformat() if other.received_at else None,
+        })
+    matches.sort(key=lambda m: m["applied_at"] or "", reverse=True)
+    return matches
+
+
 @router.get("/jobs/{job_id}/candidates")
 def list_candidates(job_id: int, user: User = Depends(require_any_user),
                     db: Session = Depends(get_db)):
@@ -251,6 +288,18 @@ def get_candidate(candidate_id: int, user: User = Depends(require_any_user),
     if candidate is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return candidate_out(candidate, include_text=True)
+
+
+@router.get("/candidates/{candidate_id}/history")
+def get_candidate_history(candidate_id: int, user: User = Depends(require_any_user),
+                          db: Session = Depends(get_db)):
+    """Other roles this same person has applied to, so a recruiter screening
+    them today has continuity instead of treating every job as if the
+    candidate has no history with the company."""
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return find_candidate_history(db, candidate)
 
 
 @router.patch("/candidates/{candidate_id}/correct")

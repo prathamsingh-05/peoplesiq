@@ -17,7 +17,7 @@ from ..models import (
     Candidate, CandidateStatus, Job, ProcessingLog, User,
 )
 from ..schemas import CandidateCorrection, StatusUpdate
-from ..services import resume_parser
+from ..services import career_timeline, resume_parser
 from ..services.fairness import redact_protected_attributes
 
 router = APIRouter(prefix="/api", tags=["candidates"])
@@ -59,6 +59,9 @@ def candidate_out(candidate: Candidate, include_text: bool = False) -> dict:
         "received_at": candidate.received_at.isoformat(),
         "processed_at": candidate.processed_at.isoformat() if candidate.processed_at else None,
         "parsed_profile": candidate.parsed_profile,
+        "career_timeline": career_timeline.build_timeline(
+            (candidate.parsed_profile or {}).get("employers")
+        ),
         "latest_evaluation_id": latest.id if latest else None,
         "ai_score": latest.overall_score if latest else None,
         "ai_recommendation": latest.recommendation if latest else None,

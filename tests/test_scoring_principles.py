@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 from app.services.screening import (
     SHORTLIST_THRESHOLD, _calibration_block, _closing_the_gap, _compute_score,
-    _detect_inconsistent_criteria, _detect_injection_signals, _deterministic_evaluate,
-    _lpa_band_guidance, _parse_lpa, _recommend, _token_variants, _verify_evidence,
-    build_recruiter_guidance, pool_insight,
+    _detect_experience_discrepancy, _detect_inconsistent_criteria, _detect_injection_signals,
+    _deterministic_evaluate, _lpa_band_guidance, _parse_lpa, _recommend, _token_variants,
+    _verify_evidence, build_recruiter_guidance, pool_insight,
 )
 from app.services.scorecard import _deterministic_scorecard, _is_logistics_condition
 
@@ -589,3 +589,39 @@ def test_do_not_shortlist_hides_closing_the_gap_on_mandatory_knockout():
     assert guidance["closing_the_gap"] == []
     assert guidance["points_to_shortlist"] == 0.0
     assert "points off" not in guidance["reason_in_plain_english"]
+
+
+# ---------------------------------------------------------------------------
+# Principle 21: date arithmetic is computed, never estimated — a large
+# mismatch between the resume's own dated timeline and the model's reported
+# experience is caught deterministically, like principle 14's consistency
+# check but for dates instead of criteria.
+# ---------------------------------------------------------------------------
+def test_experience_discrepancy_flags_large_mismatch():
+    timeline = {
+        "entries": [
+            {"employer": "A", "role": "Engineer"},
+            {"employer": "B", "role": "Senior Engineer"},
+        ],
+        "total_experience_years": 8.0,
+    }
+    flag = _detect_experience_discrepancy(timeline, llm_years=2.0)
+    assert flag is not None
+    assert "8" in flag and "2" in flag
+
+
+def test_experience_discrepancy_ignores_small_mismatch():
+    timeline = {
+        "entries": [
+            {"employer": "A", "role": "Engineer"},
+            {"employer": "B", "role": "Senior Engineer"},
+        ],
+        "total_experience_years": 5.0,
+    }
+    assert _detect_experience_discrepancy(timeline, llm_years=5.4) is None
+
+
+def test_experience_discrepancy_needs_at_least_two_dated_entries():
+    timeline = {"entries": [{"employer": "A", "role": "Engineer"}], "total_experience_years": 8.0}
+    assert _detect_experience_discrepancy(timeline, llm_years=1.0) is None
+    assert _detect_experience_discrepancy({"entries": []}, llm_years=1.0) is None

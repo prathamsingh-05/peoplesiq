@@ -553,3 +553,39 @@ def test_pool_insight_weak_pool_without_common_gap():
     insight = pool_insight(evals)
     assert insight["common_gap"] is None
     assert "weak pool" in insight["headline"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Principle: "closing the gap" reasoning only makes sense for a purely
+# score-driven do_not_shortlist — a genuine mandatory-gap knock-out isn't
+# fixable by score math, so it must never show a misleading "points off".
+# ---------------------------------------------------------------------------
+def test_do_not_shortlist_shows_closing_the_gap_when_score_driven():
+    results = [
+        _criterion("Core skill", 3.0, "needs_verification", category="technical_skills"),
+        _criterion("Other skill", 1.0, "no_evidence", category="technical_skills"),
+    ]
+    score, mandatory_status = _compute_score(results)
+    guidance = build_recruiter_guidance(
+        recommendation="do_not_shortlist", score=score, mandatory_status=mandatory_status,
+        key_strengths=[], gaps=[], verification_questions=[], criterion_results=results,
+    )
+    assert guidance["closing_the_gap"]
+    assert "points off" in guidance["reason_in_plain_english"]
+
+
+def test_do_not_shortlist_hides_closing_the_gap_on_mandatory_knockout():
+    results = [
+        _criterion("Work authorization", 3.0, "no_evidence", mandatory=True, category="mandatory"),
+        _criterion("Security clearance", 3.0, "no_evidence", mandatory=True, category="mandatory"),
+        _criterion("Core skill", 2.0, "needs_verification", category="technical_skills"),
+    ]
+    score, mandatory_status = _compute_score(results)
+    assert mandatory_status == "not_met"
+    guidance = build_recruiter_guidance(
+        recommendation="do_not_shortlist", score=score, mandatory_status=mandatory_status,
+        key_strengths=[], gaps=[], verification_questions=[], criterion_results=results,
+    )
+    assert guidance["closing_the_gap"] == []
+    assert guidance["points_to_shortlist"] == 0.0
+    assert "points off" not in guidance["reason_in_plain_english"]

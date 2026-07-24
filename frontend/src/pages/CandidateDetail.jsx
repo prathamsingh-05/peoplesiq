@@ -7,6 +7,7 @@ export default function CandidateDetail() {
   const { candidateId } = useParams()
   const [tab, setTab] = useState('assessment')
   const candidate = useAsync(() => api.get(`/api/candidates/${candidateId}`), [candidateId])
+  const history = useAsync(() => api.get(`/api/candidates/${candidateId}/history`), [candidateId])
 
   if (candidate.loading) return <Spinner />
   if (candidate.error) return <Alert kind="error">{candidate.error}</Alert>
@@ -30,6 +31,20 @@ export default function CandidateDetail() {
           <div className="small muted">AI score · <Badge value={c.ai_recommendation} /></div>
         </div>
       </div>
+
+      {history.data?.length > 0 && (
+        <Alert kind="info">
+          <b>Also applied before:</b>{' '}
+          {history.data.map((h, i) => (
+            <span key={h.candidate_id}>
+              {i > 0 && ' · '}
+              <Link to={`/jobs/${h.job_id}`}>{h.job_title || h.job_code}</Link>
+              {' '}(<Badge value={h.status} />
+              {h.overall_score != null && <>, scored {Math.round(h.overall_score)}</>})
+            </span>
+          ))}
+        </Alert>
+      )}
 
       <div className="tabs">
         {[['assessment', 'Assessment'], ['questions', 'Screening questions'],

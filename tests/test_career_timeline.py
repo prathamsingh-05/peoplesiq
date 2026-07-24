@@ -80,6 +80,20 @@ def test_build_timeline_short_stint_detection():
     assert tl["short_stint_count"] == 2
 
 
+def test_build_timeline_most_recent_picks_latest_end_not_last_listed():
+    employers = [
+        # Listed second but ends earlier — must not be picked as "most recent".
+        {"employer": "Older", "role": "Analyst", "start": "Jan 2015", "end": "Dec 2016"},
+        {"employer": "Current", "role": "Senior Analyst", "start": "Jan 2020", "end": "Present"},
+    ]
+    tl = build_timeline(employers, today=date(2024, 1, 1))
+    assert tl["most_recent"]["employer"] == "Current"
+
+
+def test_build_timeline_most_recent_none_when_no_entries():
+    assert build_timeline([])["most_recent"] is None
+
+
 def test_build_timeline_empty_input():
     tl = build_timeline([])
     assert tl["entries"] == []
@@ -100,3 +114,14 @@ def test_timeline_block_mentions_ground_truth_and_gaps():
     assert "Acme" in block and "Globex" in block
     assert "gap" in block.lower()
     assert "never scored" in block or "never penalised" in block
+
+
+def test_timeline_block_names_most_recent_role():
+    employers = [
+        {"employer": "Older", "role": "Analyst", "start": "Jan 2015", "end": "Dec 2016"},
+        {"employer": "Current", "role": "Senior Analyst", "start": "Jan 2020", "end": "Present"},
+    ]
+    tl = build_timeline(employers, today=date(2024, 1, 1))
+    block = timeline_block(tl)
+    assert "Most recent" in block
+    assert "Current" in block and "Senior Analyst" in block

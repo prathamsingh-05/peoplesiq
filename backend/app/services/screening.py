@@ -138,7 +138,23 @@ literature and NYC LL144 / EEOC-style controls):
     model's own `relevant_experience_years` is caught deterministically too
     (`_detect_experience_discrepancy`) — the same self-consistency spirit as
     principle 14, applied to dates instead of criteria.
-22. These are enforced by `tests/test_scoring_principles.py` and
+22. Recency matters for technical skills, not just presence: a skill
+    demonstrated in the candidate's current or most recent role is trustworthy,
+    active evidence; the same skill appearing only in a role from many years
+    ago with nothing since is real but more dated signal, and is treated as
+    needs_verification rather than automatically confirmed — most relevant for
+    fast-moving technologies, not foundational/slow-changing skills. The
+    computed career timeline's `most_recent` entry (principle 21) is the
+    deterministic anchor for what counts as "recent."
+23. A resume the engine itself can't confidently read is not evidence of a
+    poor fit — it's evidence of a thin resume. `overall_impression:
+    insufficient_data` pulls a purely score-driven rejection back to
+    recruiter review, exactly like a "strong" holistic read does (principle
+    14) — a low score from missing information must never be treated the
+    same as a low score from genuine, demonstrated mismatch. As with that
+    override, a genuine mandatory-gap knock-out is never eligible for this
+    either.
+24. These are enforced by `tests/test_scoring_principles.py` and
     `tests/test_career_timeline.py`, not just described here — a change that
     violates one of these rules should fail that suite, on purpose.
 """
@@ -391,6 +407,19 @@ TECHNICAL SKILLS — RECOGNIZE THEM ACCURATELY, THEN WEIGHT THEM BY WHAT THE JD 
   your judgement of overall fit; skills marked preferred/nice-to-have are exactly
   that — don't let missing or weak evidence on a preferred skill drag down your read
   of a candidate who is strong on the essentials.
+- Weight technical-skill evidence by recency, not just presence. A skill demonstrated
+  in the candidate's current or most recent role (use the computed career timeline
+  below, when provided, to tell what's recent — otherwise a resume's own reverse-
+  chronological ordering is your best signal) is strong, trustworthy evidence. The
+  same skill appearing only in a role from many years ago, with nothing since to
+  suggest it's been kept current, is real evidence the candidate has used it before —
+  but is more dated signal than active use. Treat that as needs_verification rather
+  than automatically confirmed, and say so in notes (e.g. "last evidenced in a 2016
+  role, nothing since"), so the recruiter can judge whether currency matters here.
+  This applies most to fast-moving technologies (frameworks, cloud tooling, languages
+  that change significantly over time) — a foundational, slow-changing skill (SQL,
+  stakeholder management, testing fundamentals) doesn't go stale the same way and
+  should not be downgraded just for not being in the candidate's most recent role.
 
 RISK SIGNALS WORTH FLAGGING — put these in risk_flags, never in the score:
 A senior recruiter notices things worth a conversation on the call without
@@ -1035,6 +1064,18 @@ def _recommend(score: float, mandatory_status: str, results: list, raw: dict,
                 "strong even though the line-by-line criteria score is low — routed to "
                 "recruiter review rather than automatic rejection so a real person isn't "
                 "lost to a narrow tally."
+            )
+        elif raw.get("overall_impression") == "insufficient_data":
+            # A resume the engine itself can't confidently read is not
+            # evidence of a poor fit — it's evidence of a thin resume
+            # (principle 23). A low score here reflects missing information,
+            # not a demonstrated mismatch, so it must not silently reject.
+            recommendation = "recruiter_review"
+            reasons.append(
+                "The resume itself is too sparse for the engine to judge confidently — a "
+                "low score here reflects missing information, not a demonstrated poor fit. "
+                "Routed to recruiter review rather than rejection; a screening call or an "
+                "updated resume would let you judge this fairly."
             )
 
     explanation = " ".join(reasons)

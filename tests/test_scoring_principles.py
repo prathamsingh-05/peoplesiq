@@ -284,6 +284,39 @@ def test_strong_overall_impression_pulls_score_driven_rejection_to_review():
     assert "holistic" in explanation.lower()
 
 
+def test_insufficient_data_pulls_score_driven_rejection_to_review():
+    results = [
+        _criterion("Skill A", 2.0, "no_evidence"),
+        _criterion("Skill B", 2.0, "no_evidence"),
+    ]
+    score, mandatory_status = _compute_score(results)
+    assert score < 45.0  # would normally auto-reject
+
+    recommendation, explanation = _recommend(
+        score, mandatory_status, results,
+        {"confidence": "medium", "overall_impression": "insufficient_data"}, "llm",
+    )
+    assert recommendation == "recruiter_review"
+    assert "sparse" in explanation.lower()
+
+
+def test_insufficient_data_never_rescues_a_genuine_mandatory_gap_rejection():
+    results = [
+        _criterion("Work authorization", 3.0, "no_evidence", mandatory=True, category="mandatory"),
+        _criterion("Security clearance", 3.0, "no_evidence", mandatory=True, category="mandatory"),
+    ]
+    score, mandatory_status = _compute_score(results)
+    assert mandatory_status == "not_met"
+    recommendation, _ = _recommend(
+        score, mandatory_status, results,
+        {"confidence": "medium", "overall_impression": "insufficient_data"}, "llm",
+    )
+    # Two genuine mandatory gaps => do_not_shortlist regardless of
+    # overall_impression; this override only applies to purely score-driven
+    # rejections, same as the "strong" override above.
+    assert recommendation == "do_not_shortlist"
+
+
 def test_holistic_override_never_rescues_a_genuine_mandatory_gap_rejection():
     """The whole-person override must not weaken the separate, deliberate
     mandatory-gap hard stop — a "strong" holistic read cannot paper over two

@@ -142,12 +142,20 @@ def build_timeline(employers: list[dict] | None, today: date | None = None) -> d
         1 for e in entries if not e["ongoing"] and e["duration_months"] < _SHORT_STINT_MONTHS
     )
 
+    # The entry that ends latest — not necessarily the last one added, since
+    # a resume can list roles out of order or have concurrent stints. This is
+    # the deterministic anchor for "what's recent" (skill-recency weighting,
+    # screening.py's TECHNICAL SKILLS guidance) instead of leaving the model
+    # to infer it from resume ordering alone.
+    most_recent = max(entries, key=lambda e: e["end_idx"]) if entries else None
+
     return {
         "entries": entries,
         "total_experience_years": round(len(covered) / 12, 1),
         "gaps": gaps,
         "short_stint_count": short_stints,
         "employer_count": len(entries),
+        "most_recent": most_recent,
     }
 
 
@@ -177,6 +185,14 @@ def timeline_block(timeline: dict) -> str:
         f"roles): ~{timeline['total_experience_years']:g} years across "
         f"{timeline['employer_count']} role(s).",
     ]
+    recent = timeline.get("most_recent")
+    if recent:
+        parts.append(
+            f"Most recent / current role, for recency judgements on technical-skill "
+            f"evidence: {recent['role'] or 'role not specified'} at "
+            f"{recent['employer'] or 'employer not specified'} "
+            f"({recent['start_label']} - {recent['end_label']})."
+        )
     if timeline.get("gaps"):
         gap_lines = [
             f"- {g['months']}-month gap between {g['from']} and {g['to']}"

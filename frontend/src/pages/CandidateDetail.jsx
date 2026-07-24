@@ -55,7 +55,7 @@ export default function CandidateDetail() {
         ))}
       </div>
 
-      {tab === 'assessment' && <AssessmentTab candidateId={candidateId} />}
+      {tab === 'assessment' && <AssessmentTab candidateId={candidateId} candidate={c} />}
       {tab === 'questions' && <QuestionsTab candidateId={candidateId} />}
       {tab === 'call' && <CallDecisionTab candidate={c} reload={candidate.reload} />}
       {tab === 'summary' && <SummaryTab candidateId={candidateId} />}
@@ -68,7 +68,33 @@ export default function CandidateDetail() {
 }
 
 // ---------------------------------------------------------------------------
-function AssessmentTab({ candidateId }) {
+function CareerTimelineCard({ timeline }) {
+  if (!timeline?.entries?.length) return null
+  return (
+    <div className="card">
+      <h2>Career timeline <span className="small muted">(computed from dated work history, not AI-estimated)</span></h2>
+      <ul className="clean">
+        {timeline.entries.map((e, i) => (
+          <li key={i}>
+            <b>{e.role || 'Role not specified'}</b> @ {e.employer || 'employer not specified'}
+            {' — '}{e.start_label} to {e.end_label} ({e.duration_months} mo{e.ongoing ? ', current' : ''})
+          </li>
+        ))}
+      </ul>
+      <p className="small muted">
+        ~{timeline.total_experience_years} years total across {timeline.employer_count} role(s)
+        {timeline.short_stint_count > 0 && <>, {timeline.short_stint_count} stint(s) under a year</>}.
+      </p>
+      {timeline.gaps?.length > 0 && (
+        <p className="small muted">
+          <b>Gaps:</b> {timeline.gaps.map((g, i) => `${g.months} mo (${g.from}–${g.to})`).join(' · ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function AssessmentTab({ candidateId, candidate }) {
   const evaluation = useAsync(
     () => api.get(`/api/candidates/${candidateId}/evaluation`).catch((e) => {
       if (e.status === 404) return null
@@ -77,16 +103,23 @@ function AssessmentTab({ candidateId }) {
 
   if (evaluation.loading) return <Spinner />
   const ev = evaluation.data
-  if (!ev) return <Alert kind="info">Not screened yet — run screening from the job's leaderboard tab.</Alert>
 
   const list = (items) => items?.length
     ? <ul className="clean">{items.map((x, i) => <li key={i}>{x}</li>)}</ul>
     : <span className="muted">None identified</span>
 
+  if (!ev) return (
+    <div>
+      <CareerTimelineCard timeline={candidate?.career_timeline} />
+      <Alert kind="info">Not screened yet — run screening from the job's leaderboard tab.</Alert>
+    </div>
+  )
+
   const g = ev.recruiter_guidance
 
   return (
     <div>
+      <CareerTimelineCard timeline={candidate?.career_timeline} />
       {g && (
         <div className={`guidance-banner ${g.tone}`}>
           <h2>{g.headline}</h2>

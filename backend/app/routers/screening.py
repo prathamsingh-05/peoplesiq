@@ -152,7 +152,7 @@ def _screen_batch(job_id: int, scorecard_id: int, candidate_ids: list[int],
 def _screen_one(db: Session, candidate: Candidate, scorecard: Scorecard,
                 job: Job, batch_id: str, force: bool = False) -> Evaluation:
     text = candidate.redacted_text or candidate.resume_text
-    ihash = engine.input_hash(text, scorecard, job)
+    ihash = engine.input_hash(text, scorecard, job, candidate.parsed_profile)
 
     # Consistency guarantee: identical resume + scorecard + job calibration
     # context → reuse the result — for the automatic "screen pending" flow,
@@ -170,7 +170,7 @@ def _screen_one(db: Session, candidate: Candidate, scorecard: Scorecard,
     if cached:
         evaluation = cached
     else:
-        result = engine.evaluate(text, scorecard, job)
+        result = engine.evaluate(text, scorecard, job, candidate.parsed_profile)
         evaluation = Evaluation(
             candidate_id=candidate.id, scorecard_id=scorecard.id, input_hash=ihash,
             model_used=config.ANTHROPIC_MODEL if result["engine"] == "llm" else "",

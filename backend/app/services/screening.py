@@ -126,9 +126,21 @@ literature and NYC LL144 / EEOC-style controls):
     the call — they go in risk_flags for the recruiter's attention and never
     move the evidence-based score, exactly like career gaps and logistics
     (principles 8, 12) already don't.
-21. These are enforced by `tests/test_scoring_principles.py`, not just
-    described here — a change that violates one of these rules should fail
-    that suite, on purpose.
+21. Date arithmetic is computed, never estimated: total experience, tenure
+    per role, and gaps between roles are arithmetic on real dates, not
+    reading comprehension — exactly the kind of task an LLM eyeballing prose
+    gets wrong. When the resume's structured `employers` data (extracted at
+    upload) has parseable dates, a deterministic career timeline is built in
+    code and given to the model as ground truth to reason from, instead of
+    asking it to estimate durations from the prose itself
+    (`career_timeline.py`, `_calibration_block`'s sibling `timeline_block`).
+    A large, unexplained mismatch between that computed total and the
+    model's own `relevant_experience_years` is caught deterministically too
+    (`_detect_experience_discrepancy`) — the same self-consistency spirit as
+    principle 14, applied to dates instead of criteria.
+22. These are enforced by `tests/test_scoring_principles.py` and
+    `tests/test_career_timeline.py`, not just described here — a change that
+    violates one of these rules should fail that suite, on purpose.
 """
 from __future__ import annotations
 
@@ -137,7 +149,7 @@ import json
 import re
 
 from ..models import Evaluation, Scorecard
-from . import llm
+from . import career_timeline, llm
 from .fairness import FAIRNESS_RULES_PROMPT
 
 EVIDENCE_STATES = ["confirmed", "partial", "no_evidence", "contradictory", "needs_verification"]
@@ -220,7 +232,11 @@ HOW TO APPROACH EVERY ASSESSMENT, IN ORDER:
    particular words — a lot of what matters about a candidate is implied rather
    than spelled out, and understanding that is part of this read, not an
    afterthought. Form your overall_impression from this whole-profile read,
-   before you touch the criterion-by-criterion list.
+   before you touch the criterion-by-criterion list. If a computed career
+   timeline is provided below, use its dates/durations as ground truth for any
+   date arithmetic (total experience, tenure, gaps) rather than estimating from
+   the prose yourself — but keep reading the resume text itself for everything
+   the dates alone can't tell you.
 3. Only then assess each individual criterion, using both the role-understanding
    from step 1 and the whole-profile read from step 2 as context — never judge a
    criterion, or the resume, in isolation from what the role actually needs and who
@@ -581,9 +597,12 @@ def _calibration_block(job) -> str:
     return "Role-level calibration for THIS job:\n" + "\n".join(f"- {l}" for l in lines)
 
 
-def input_hash(redacted_text: str, scorecard: Scorecard, job=None) -> str:
+def input_hash(redacted_text: str, scorecard: Scorecard, job=None,
+               parsed_profile: dict | None = None) -> str:
     calibration = _calibration_block(job) if job is not None else ""
-    payload = redacted_text + "||" + calibration + "||" + json.dumps(
+    timeline = career_timeline.build_timeline((parsed_profile or {}).get("employers"))
+    tblock = career_timeline.timeline_block(timeline)
+    payload = redacted_text + "||" + calibration + "||" + tblock + "||" + json.dumps(
         [
             {
                 "id": c.id, "cat": c.category, "name": c.name,
@@ -596,12 +615,17 @@ def input_hash(redacted_text: str, scorecard: Scorecard, job=None) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def evaluate(redacted_text: str, scorecard: Scorecard, job) -> dict:
+def evaluate(redacted_text: str, scorecard: Scorecard, job,
+            parsed_profile: dict | None = None) -> dict:
     """Run the evaluation against a Job (or any object exposing the same
     attributes — title, seniority_tier, compensation_range, good_enough_note,
-    success_criteria). Returns a dict ready to persist on Evaluation."""
+    success_criteria) and, when available, the candidate's parsed_profile
+    (for the deterministic career timeline — principle 21). Returns a dict
+    ready to persist on Evaluation."""
+    timeline = career_timeline.build_timeline((parsed_profile or {}).get("employers"))
+    tblock = career_timeline.timeline_block(timeline)
     try:
-        raw = _llm_evaluate(redacted_text, scorecard, job)
+        raw = _llm_evaluate(redacted_text, scorecard, job, tblock)
         engine = "llm"
     except llm.LLMUnavailable:
         raw = _deterministic_evaluate(redacted_text, scorecard)
@@ -613,12 +637,17 @@ def evaluate(redacted_text: str, scorecard: Scorecard, job) -> dict:
         score, mandatory_status, results, raw, engine
     )
 
-    # Deterministic checks (principles 14/15) — computed in code, not asked of
-    # the LLM, so they can't be talked out of by the same text they're
-    # checking.
+    # Deterministic checks (principles 14/15/21) — computed in code, not
+    # asked of the LLM, so they can't be talked out of by the same text
+    # they're checking.
     consistency_flags = _detect_inconsistent_criteria(
         results, raw.get("key_strengths", []), raw.get("gaps", [])
     )
+    experience_flag = _detect_experience_discrepancy(
+        timeline, float(raw.get("relevant_experience_years") or 0)
+    )
+    if experience_flag:
+        consistency_flags.append(experience_flag)
     injection_hits = _detect_injection_signals(redacted_text)
     risk_flags = list(raw.get("risk_flags", [])[:8]) + consistency_flags
     if injection_hits:
@@ -658,26 +687,28 @@ def evaluate(redacted_text: str, scorecard: Scorecard, job) -> dict:
     }
 
 
-def _llm_evaluate(redacted_text: str, scorecard: Scorecard, job) -> dict:
+def _llm_evaluate(redacted_text: str, scorecard: Scorecard, job,
+                  timeline_block: str = "") -> dict:
     criteria_block = "\n".join(
         f"- criterion_id={c.id} | category={c.category} | mandatory={c.is_mandatory} | "
         f"weight={c.weight} | {c.name}: {c.description}"
         for c in scorecard.criteria
     )
     calibration = _calibration_block(job)
-    user = f"""Job title: {getattr(job, "title", "") or "Not specified"}
-
-{calibration if calibration else "No role-level calibration details were provided for this job — judge against the criteria and their descriptions as written."}
-
-Approved scorecard criteria:
-{criteria_block}
-
-Resume (protected attributes redacted):
-<resume>
-{redacted_text[:30000]}
-</resume>
-
-Assess every criterion_id exactly once."""
+    sections = [
+        f"Job title: {getattr(job, 'title', '') or 'Not specified'}",
+        calibration if calibration else
+        "No role-level calibration details were provided for this job — judge against "
+        "the criteria and their descriptions as written.",
+    ]
+    if timeline_block:
+        sections.append(timeline_block)
+    sections.append(f"Approved scorecard criteria:\n{criteria_block}")
+    sections.append(
+        f"Resume (protected attributes redacted):\n<resume>\n{redacted_text[:30000]}\n</resume>"
+    )
+    sections.append("Assess every criterion_id exactly once.")
+    user = "\n\n".join(sections)
     return llm.structured_call(
         system=_SYSTEM, user_content=user, schema=EVALUATION_SCHEMA, max_tokens=8000
     )
@@ -769,6 +800,31 @@ def _detect_inconsistent_criteria(results: list, key_strengths: list, gaps: list
                 )
                 break
     return flags
+
+
+def _detect_experience_discrepancy(timeline: dict, llm_years: float) -> str | None:
+    """Deterministic cross-check (principle 21, same spirit as principle 14's
+    self-consistency check but for dates instead of criteria): when the
+    resume's own dated work history computes to a meaningfully different
+    total than what the model reported for relevant_experience_years, that's
+    worth a recruiter's attention — either the model misread the dates, or
+    the resume's claimed experience doesn't reconcile with its own dated
+    history. Only fires with enough dated history to trust the computed
+    total (2+ placed roles) and a gap too large to be rounding noise."""
+    entries = timeline.get("entries") or []
+    if len(entries) < 2:
+        return None
+    computed = timeline["total_experience_years"]
+    if computed <= 0:
+        return None
+    if abs(computed - llm_years) < 1.5:
+        return None
+    return (
+        f"The resume's own dated work history computes to about {computed:g} years of "
+        f"experience, but the reported relevant experience was {llm_years:g} years — "
+        "worth reconciling on the call (this can be as simple as relevant experience "
+        "predating the earliest dated role, or incomplete dates on the resume)."
+    )
 
 
 # Phrases that read as an attempt to direct the model's behaviour rather than

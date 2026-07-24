@@ -264,6 +264,7 @@ function _poolInsightTone(headline) {
 function LeaderboardTab({ jobId, hasScorecard }) {
   const board = useAsync(() => api.get(`/api/jobs/${jobId}/leaderboard`), [jobId])
   const insight = useAsync(() => api.get(`/api/jobs/${jobId}/pool-insight`), [jobId])
+  const differentiators = useAsync(() => api.get(`/api/jobs/${jobId}/top-differentiators`), [jobId])
   const [progress, setProgress] = useState(null)
   const [error, setError] = useState('')
   const timer = useRef()
@@ -272,7 +273,7 @@ function LeaderboardTab({ jobId, hasScorecard }) {
     api.get(`/api/jobs/${jobId}/screen/status`).then((s) => {
       setProgress(s)
       if (s.running) timer.current = setTimeout(poll, 2000)
-      else { board.reload(); insight.reload() }
+      else { board.reload(); insight.reload(); differentiators.reload() }
     })
   }
   useEffect(() => () => clearTimeout(timer.current), [])
@@ -336,6 +337,17 @@ function LeaderboardTab({ jobId, hasScorecard }) {
       {insight.data && insight.data.pool_size > 0 && (
         <Alert kind={_poolInsightTone(insight.data.headline)}>
           <b>{insight.data.headline}.</b> {insight.data.note}
+        </Alert>
+      )}
+      {differentiators.data?.available && differentiators.data.differentiators.length > 0 && (
+        <Alert kind="info">
+          <b>What sets the top candidates apart:</b> {differentiators.data.note}{' '}
+          {differentiators.data.differentiators.map((d, i) => (
+            <span key={d.criterion}>
+              {i > 0 && ' · '}
+              <b>{d.criterion}</b> ({d.top_confirmed_pct}% of top vs {d.rest_confirmed_pct}% of rest)
+            </span>
+          ))}
         </Alert>
       )}
       {progress?.running && (

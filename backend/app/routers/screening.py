@@ -314,6 +314,19 @@ def get_pool_insight(job_id: int, user: User = Depends(require_any_user),
     return engine.pool_insight(evaluations)
 
 
+@router.get("/jobs/{job_id}/top-differentiators")
+def get_top_differentiators(job_id: int, user: User = Depends(require_any_user),
+                            db: Session = Depends(get_db)):
+    """What separates this pool's top tier from the rest — the comparison a
+    recruiter naturally makes across a batch of resumes, not just a
+    per-candidate read. Computed deterministically from stored evaluations."""
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    evaluations = [c.evaluations[0] for c in job.candidates if c.evaluations]
+    return engine.top_differentiators(evaluations)
+
+
 # ---------------------------------------------------------------------------
 # Stage 5 — Individual assessment + recruiter decision (HITL gate #2)
 # ---------------------------------------------------------------------------

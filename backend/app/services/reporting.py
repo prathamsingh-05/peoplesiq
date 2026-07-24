@@ -23,6 +23,32 @@ def _band(score: float) -> str:
     return "0-44"
 
 
+# A criterion needs to show up in at least this many disagreement cases
+# before it's worth surfacing as a pattern — one-off noise isn't a
+# calibration signal.
+_MIN_PATTERN_COUNT = 2
+
+
+def _disagreement_criteria(cases: list[Candidate]) -> list[dict]:
+    """For a set of AI/recruiter disagreement cases, tally which criteria
+    most often show weak evidence (no_evidence/contradictory) in those
+    specific evaluations. This turns a vague 'agreement is low' number into
+    something actionable: which scorecard criteria are actually driving the
+    disagreement, and might be miscalibrated (weighted too harshly for
+    candidates recruiters still want, or too leniently for gaps recruiters
+    won't accept) — a real recruiter-override learning loop, computed
+    entirely from decision data the system already stores."""
+    counts: dict[str, int] = {}
+    for c in cases:
+        if not c.evaluations:
+            continue
+        for r in (c.evaluations[0].criterion_results or []):
+            if r.get("status") in ("no_evidence", "contradictory"):
+                counts[r["name"]] = counts.get(r["name"], 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+    return [{"criterion": name, "count": count} for name, count in ranked if count >= _MIN_PATTERN_COUNT][:5]
+
+
 def responsible_ai_report(db: Session, job_id: int | None = None) -> dict:
     query = db.query(Candidate)
     if job_id:
@@ -51,8 +77,8 @@ def responsible_ai_report(db: Session, job_id: int | None = None) -> dict:
     # AI vs recruiter agreement on decided candidates.
     decided = [c for c in evaluated if c.recruiter_decision in ("shortlist", "reject")]
     agree = 0
-    ai_shortlist_recruiter_reject = 0   # AI said shortlist, human rejected (over-selection)
-    ai_reject_recruiter_shortlist = 0   # AI said reject, human shortlisted (missed by AI)
+    overselected: list[Candidate] = []   # AI said shortlist, human rejected (over-selection)
+    missed: list[Candidate] = []         # AI said reject, human shortlisted (missed by AI)
     for c in decided:
         rec = c.evaluations[0].recommendation
         if c.recruiter_decision == "shortlist" and rec == "shortlist":
@@ -60,9 +86,11 @@ def responsible_ai_report(db: Session, job_id: int | None = None) -> dict:
         elif c.recruiter_decision == "reject" and rec == "do_not_shortlist":
             agree += 1
         elif c.recruiter_decision == "reject" and rec == "shortlist":
-            ai_shortlist_recruiter_reject += 1
+            overselected.append(c)
         elif c.recruiter_decision == "shortlist" and rec == "do_not_shortlist":
-            ai_reject_recruiter_shortlist += 1
+            missed.append(c)
+    ai_shortlist_recruiter_reject = len(overselected)
+    ai_reject_recruiter_shortlist = len(missed)
 
     flagged = [c for c in candidates if c.flagged_for_review]
 
@@ -84,6 +112,20 @@ def responsible_ai_report(db: Session, job_id: int | None = None) -> dict:
         "ai_recruiter_agreement_pct": pct(agree, len(decided)),            # target >=80
         "ai_overselection_count": ai_shortlist_recruiter_reject,
         "ai_missed_count": ai_reject_recruiter_shortlist,                  # recall risk — most important
+        # Recruiter-override learning loop: which specific scorecard criteria
+        # keep showing up as weak evidence in the cases recruiters overrode,
+        # broken out by direction — a concrete "what to recalibrate" signal
+        # instead of just an aggregate agreement percentage.
+        "ai_missed_common_criteria": _disagreement_criteria(missed),
+        "ai_overselected_common_criteria": _disagreement_criteria(overselected),
+        "override_pattern_note": (
+            "ai_missed_common_criteria lists criteria the AI marked as weak evidence on "
+            "candidates recruiters shortlisted anyway — a recurring criterion here is a "
+            "candidate for lowering its weight or mandatory status. "
+            "ai_overselected_common_criteria lists criteria marked weak on candidates the "
+            "AI shortlisted but recruiters rejected — a recurring criterion here suggests "
+            "its weight may be too low relative to how much recruiters actually care about it."
+        ),
         # Random fairness review of rejections
         "flagged_for_review": len(flagged),
         "flagged_still_open": sum(1 for c in flagged if c.flagged_for_review),

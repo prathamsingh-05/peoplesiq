@@ -154,9 +154,28 @@ literature and NYC LL144 / EEOC-style controls):
     same as a low score from genuine, demonstrated mismatch. As with that
     override, a genuine mandatory-gap knock-out is never eligible for this
     either.
-24. These are enforced by `tests/test_scoring_principles.py` and
-    `tests/test_career_timeline.py`, not just described here — a change that
-    violates one of these rules should fail that suite, on purpose.
+24. The pool is also compared against itself, not just summarised: beyond
+    whether the pool as a whole is strong or weak (principle 19), a recruiter
+    naturally asks what actually separates the top tier from the rest —
+    which criteria the strongest candidates confirm far more often than
+    everyone else. Computed the same way as pool_insight — deterministically
+    from stored evaluations, no extra AI call — and only surfaced when the
+    gap between groups is large enough to be a real signal, not noise
+    (`top_differentiators`).
+25. Recruiter overrides are a calibration signal, not just an agreement
+    percentage: when the AI's recommendation and the recruiter's decision
+    disagree, which specific scorecard criteria showed weak evidence in
+    those disputed evaluations is a concrete, actionable pattern — a
+    criterion that keeps showing up in cases where the AI rejected but the
+    recruiter shortlisted anyway is a candidate for a lower weight; one that
+    keeps showing up where the AI shortlisted but the recruiter rejected
+    suggests the opposite. Computed entirely from decision data already
+    stored, surfaced in the responsible-AI report
+    (`reporting._disagreement_criteria`).
+26. These are enforced by `tests/test_scoring_principles.py`,
+    `tests/test_career_timeline.py`, and `tests/test_reporting.py`, not just
+    described here — a change that violates one of these rules should fail
+    that suite, on purpose.
 """
 from __future__ import annotations
 
@@ -1383,4 +1402,73 @@ def pool_insight(evaluations: list) -> dict:
         "pool_size": n, "shortlist_count": shortlist, "review_count": review,
         "reject_count": reject, "average_score": round(avg_score, 1),
         "headline": headline, "note": note, "common_gap": common_gap,
+    }
+
+
+# Minimum pool size before comparing a "top" group against "the rest" is
+# statistically meaningful rather than an artifact of a tiny sample.
+_MIN_POOL_FOR_COMPARISON = 4
+# A criterion must be confirmed/partial at least this much more often in the
+# top group than the rest to count as a real differentiator, not noise.
+_MIN_DIFFERENTIATOR_GAP = 0.34
+
+
+def top_differentiators(evaluations: list) -> dict:
+    """What separates the strongest candidates in THIS pool from the rest —
+    the comparison a recruiter naturally makes after reading through a batch
+    of resumes ("the good ones all have X"), not just a per-candidate read.
+    Computed deterministically from already-stored evaluations, no extra AI
+    call — same philosophy as pool_insight, which this complements: that
+    function reads the pool's overall health, this one reads what actually
+    distinguishes its top tier."""
+    n = len(evaluations)
+    if n < _MIN_POOL_FOR_COMPARISON:
+        return {
+            "available": False,
+            "note": f"Need at least {_MIN_POOL_FOR_COMPARISON} screened candidates to "
+                    "compare a top group against the rest meaningfully.",
+            "differentiators": [],
+        }
+
+    ranked = sorted(evaluations, key=lambda e: e.overall_score, reverse=True)
+    cutoff = max(1, n // 3)
+    top, rest = ranked[:cutoff], ranked[cutoff:]
+    if not rest:
+        return {
+            "available": False,
+            "note": "Every screened candidate is in the top tier — nothing to contrast against yet.",
+            "differentiators": [],
+        }
+
+    def confirm_rate(group: list, name: str) -> float:
+        hits = sum(
+            1 for e in group for r in (e.criterion_results or [])
+            if r.get("name") == name and r.get("status") in ("confirmed", "partial")
+        )
+        return hits / len(group)
+
+    names = {r["name"] for e in evaluations for r in (e.criterion_results or [])}
+    diffs = []
+    for name in names:
+        gap = confirm_rate(top, name) - confirm_rate(rest, name)
+        if gap >= _MIN_DIFFERENTIATOR_GAP:
+            diffs.append({
+                "criterion": name,
+                "top_confirmed_pct": round(confirm_rate(top, name) * 100),
+                "rest_confirmed_pct": round(confirm_rate(rest, name) * 100),
+            })
+    diffs.sort(key=lambda d: d["top_confirmed_pct"] - d["rest_confirmed_pct"], reverse=True)
+
+    return {
+        "available": True,
+        "top_group_size": len(top),
+        "rest_group_size": len(rest),
+        "differentiators": diffs[:5],
+        "note": (
+            f"Comparing the top {len(top)} of {n} screened candidates against the "
+            "remaining pool."
+        ) if diffs else (
+            f"No single criterion clearly separates the top {len(top)} of {n} screened "
+            "candidates from the rest — the pool is fairly even on paper."
+        ),
     }

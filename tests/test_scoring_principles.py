@@ -9,7 +9,7 @@ from app.services.screening import (
     SHORTLIST_THRESHOLD, _calibration_block, _closing_the_gap, _compute_score,
     _detect_experience_discrepancy, _detect_inconsistent_criteria, _detect_injection_signals,
     _deterministic_evaluate, _lpa_band_guidance, _parse_lpa, _recommend, _token_variants,
-    _verify_evidence, build_recruiter_guidance, pool_insight,
+    _verify_evidence, build_recruiter_guidance, pool_insight, top_differentiators,
 )
 from app.services.scorecard import _deterministic_scorecard, _is_logistics_condition
 
@@ -658,3 +658,45 @@ def test_experience_discrepancy_needs_at_least_two_dated_entries():
     timeline = {"entries": [{"employer": "A", "role": "Engineer"}], "total_experience_years": 8.0}
     assert _detect_experience_discrepancy(timeline, llm_years=1.0) is None
     assert _detect_experience_discrepancy({"entries": []}, llm_years=1.0) is None
+
+
+# ---------------------------------------------------------------------------
+# Principle: a recruiter compares candidates within a pool, not just against
+# an absolute bar — top_differentiators surfaces what actually separates the
+# strongest candidates from the rest, computed deterministically like
+# pool_insight (which it complements).
+# ---------------------------------------------------------------------------
+def test_top_differentiators_too_small_a_pool():
+    result = top_differentiators([_fake_eval(80, "shortlist"), _fake_eval(40, "do_not_shortlist")])
+    assert result["available"] is False
+    assert result["differentiators"] == []
+
+
+def test_top_differentiators_finds_criterion_that_separates_top_tier():
+    def ev(score, kubernetes_status):
+        return _fake_eval(score, "shortlist" if score >= 70 else "do_not_shortlist", [
+            {"name": "Kubernetes experience", "status": kubernetes_status},
+            {"name": "Communication", "status": "confirmed"},  # confirmed for everyone — not a differentiator
+        ])
+    evals = [
+        ev(90, "confirmed"), ev(85, "confirmed"), ev(80, "confirmed"),   # top third
+        ev(50, "no_evidence"), ev(45, "no_evidence"), ev(40, "no_evidence"),
+        ev(30, "no_evidence"), ev(20, "no_evidence"), ev(10, "no_evidence"),
+    ]
+    result = top_differentiators(evals)
+    assert result["available"] is True
+    names = [d["criterion"] for d in result["differentiators"]]
+    assert "Kubernetes experience" in names
+    assert "Communication" not in names  # confirmed for everyone — no gap between groups
+    kube = next(d for d in result["differentiators"] if d["criterion"] == "Kubernetes experience")
+    assert kube["top_confirmed_pct"] == 100
+    assert kube["rest_confirmed_pct"] == 0
+
+
+def test_top_differentiators_no_signal_when_pool_is_even():
+    def ev(score):
+        return _fake_eval(score, "recruiter_review", [{"name": "Skill A", "status": "confirmed"}])
+    evals = [ev(s) for s in (60, 55, 50, 45, 40, 35)]
+    result = top_differentiators(evals)
+    assert result["available"] is True
+    assert result["differentiators"] == []

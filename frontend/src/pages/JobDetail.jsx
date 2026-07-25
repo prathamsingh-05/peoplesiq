@@ -47,6 +47,12 @@ export default function JobDetail() {
           {data.domain_context && (
             <p className="small muted">Domain weighting: {data.domain_context}</p>
           )}
+          {data.critical_depth_areas && (
+            <p className="small muted">Higher bar despite the level: {data.critical_depth_areas}</p>
+          )}
+          {data.flexible_growth_areas && (
+            <p className="small muted">Happy to train on: {data.flexible_growth_areas}</p>
+          )}
         </div>
         <div className="row">
           <button className="btn secondary"

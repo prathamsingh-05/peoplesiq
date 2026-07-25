@@ -44,7 +44,21 @@ Generate 5-7 questions total, spread across four categories:
 Rules: questions must be answerable in a 15-minute call; reference the candidate's own
 resume wording where possible; never ask about age, family, religion, health, caste,
 nationality or other protected attributes; the rationale explains what the recruiter
-learns from the answer."""
+learns from the answer.
+
+HOLISTIC COVERAGE — this is what turns a checklist into a real conversation:
+- If any risk flags are listed below (retention risk from over-qualification, tenure/
+  job-hopping patterns, thin resume specificity, or similar), turn the single most
+  significant one into a direct, respectful question — never an accusation, genuine
+  curiosity about context the resume can't show. E.g. a tenure-pattern flag becomes
+  "I noticed a couple of shorter stints on your resume — can you walk me through what
+  was going on there?" This is exactly what these calls are for.
+- If critical depth areas are named below (places the hiring team needs genuine depth
+  even though the role overall is lower-tier/lower-pay), make sure at least one
+  skill_evidence question probes that specific area hard, not just the generic
+  essential skills.
+- Do not turn every category into a rote checklist item — a holistic pack reads like a
+  recruiter who actually read this specific resume, not a generic template."""
 
 
 def generate_questions(candidate: Candidate, evaluation: Evaluation, job: Job) -> list[dict]:
@@ -58,6 +72,7 @@ def generate_questions(candidate: Candidate, evaluation: Evaluation, job: Job) -
         user = f"""Job title: {job.title} @ {job.client_name}
 Location/model/hours: {job.location} | {job.work_model} | {job.working_hours}
 Notice-period preference: {job.notice_period_preference or 'Not specified'}
+Areas needing genuine depth despite the general level: {job.critical_depth_areas or 'None specified'}
 
 Evaluation summary: {evaluation.executive_summary}
 Identified gaps: {gaps}
@@ -101,6 +116,15 @@ def _fallback_questions(candidate: Candidate, evaluation: Evaluation, job: Job) 
             "question": f"The role requires {gap}. Can you walk me through any hands-on "
                         f"experience you have in this area, even if it is not on your resume?",
             "rationale": f"Probes the identified gap: {gap}.",
+        })
+    if evaluation.risk_flags:
+        flag = evaluation.risk_flags[0]
+        questions.append({
+            "category": "motivation",
+            "question": f"There's something worth asking you about directly: {flag} Can you "
+                        f"tell me more about the context there?",
+            "rationale": "Follows up on a flagged risk signal — context to gather on the "
+                        "call, never evidence against the candidate on its own.",
         })
     for r in evaluation.criterion_results:
         if r["status"] in ("confirmed", "partial") and r.get("evidence") and len(questions) < 6:

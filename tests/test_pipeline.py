@@ -182,6 +182,13 @@ def test_full_pipeline(auth_client):
     assert summary["status"] == "draft"
     assert summary["content"]["notice_period"] == "30 days"
     assert "CANDIDATE PROFILE" in summary["formatted_text"]
+    # The whole-career narrative and risk flags already computed during
+    # screening now reach the hiring manager instead of staying buried in
+    # the AI-only evaluation view.
+    assert "career_pattern" in summary["content"]
+    assert "risk_flags" in summary["content"]
+    assert "Career pattern" in summary["formatted_text"]
+    assert "Worth a conversation" in summary["formatted_text"]
     approved_summary = client.post(f"/api/hm-summaries/{summary['id']}/approve").json()
     assert approved_summary["status"] == "approved"
 

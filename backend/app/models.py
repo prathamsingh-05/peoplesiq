@@ -107,6 +107,15 @@ class Job(Base):
     # this, the engine has no way to tell "must have done this exact domain"
     # from "any adjacent domain is fine, we'll teach the specifics."
     domain_context: Mapped[str] = mapped_column(Text, default="")
+    # A single tier/pay-band dial (seniority_tier, compensation_range) can't
+    # express "overall this is a lower-pay, lower-expectation role, but we
+    # still need real depth in one specific area" — a very common real-world
+    # shape (e.g. an entry-level support role that still needs genuinely
+    # strong SQL). These two fields are that carve-out, in both directions:
+    # where to hold a HIGHER bar than the general band would suggest, and
+    # where to relax it because the team is happy to train.
+    critical_depth_areas: Mapped[str] = mapped_column(Text, default="")
+    flexible_growth_areas: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(32), default=JobStatus.draft.value)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -63,6 +63,12 @@ def build_summary(candidate: Candidate, evaluation: Evaluation, job: Job) -> dic
             or evaluation.explanation,
         "ai_score": evaluation.overall_score,
         "ai_recommendation": evaluation.recommendation,
+        # Already computed during screening but previously never reached the
+        # hiring manager — the whole-career "who is this person" read and
+        # anything worth a conversation on the call, both piped straight
+        # from the evaluation rather than re-derived by another AI call.
+        "career_pattern": evaluation.overall_impression_note,
+        "risk_flags": evaluation.risk_flags,
     }
     return content
 
@@ -97,6 +103,7 @@ def format_profile(content: dict) -> str:
     skills = ", ".join(content.get("core_skills", []))
     achievements = "\n".join(f"  • {a}" for a in content.get("key_achievements", [])) or "  —"
     probes = "\n".join(f"  • {p}" for p in content.get("areas_to_probe", [])) or "  —"
+    risk_flags = "\n".join(f"  • {r}" for r in content.get("risk_flags", [])) or "  —"
     shift = {True: "Confirmed", False: "Not confirmed", None: "To be confirmed"}
     return f"""CANDIDATE PROFILE — {content.get('candidate_name', '')} ({content.get('candidate_code', '')})
 Role: {content.get('job_title', '')} | Client: {content.get('client', '')}
@@ -106,6 +113,9 @@ Total experience        : {content.get('total_experience') or '—'}
 Relevant experience     : {content.get('relevant_experience') or '—'}
 Core skills             : {skills or '—'}
 Industry/client exposure: {content.get('industry_client_exposure') or '—'}
+
+Career pattern (who this person is, as a professional):
+  {content.get('career_pattern') or '—'}
 
 Key achievements:
 {achievements}
@@ -120,6 +130,9 @@ Recruiter observations:
 
 Areas for the hiring manager to probe:
 {probes}
+
+Worth a conversation (not marks against the candidate — context to confirm):
+{risk_flags}
 
 Why we recommend this candidate:
   {content.get('reason_for_recommendation') or '—'}

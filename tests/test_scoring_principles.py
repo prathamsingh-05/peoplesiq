@@ -220,6 +220,26 @@ def test_calibration_block_includes_domain_context():
     assert "knock-out" in block.lower()
 
 
+def test_calibration_block_includes_critical_depth_areas():
+    block = _calibration_block(_job(
+        seniority_tier="entry", compensation_range="6 LPA",
+        critical_depth_areas="Advanced SQL query optimisation",
+    ))
+    assert "Advanced SQL query optimisation" in block
+    assert "higher bar" in block.lower()
+    # The exception must not erase the general entry-tier guidance elsewhere.
+    assert "entry" in block.lower()
+
+
+def test_calibration_block_includes_flexible_growth_areas():
+    block = _calibration_block(_job(
+        flexible_growth_areas="Kubernetes, cloud infrastructure",
+    ))
+    assert "Kubernetes, cloud infrastructure" in block
+    assert "happy to train" in block.lower()
+    assert "should not count against" in block.lower() or "should not count" in block.lower()
+
+
 # ---------------------------------------------------------------------------
 # Principle: self-selected logistics (shift/WFO/relocation/notice period) are
 # eligibility conditions, never scored mandatory criteria.

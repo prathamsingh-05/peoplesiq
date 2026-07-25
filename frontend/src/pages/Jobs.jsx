@@ -10,6 +10,7 @@ const EMPTY = {
   compensation_range: '', notice_period_preference: '', mandatory_conditions: '',
   seniority_tier: '', good_enough_note: '', success_criteria: '',
   ideal_candidate_profile: '', domain_context: '',
+  critical_depth_areas: '', flexible_growth_areas: '',
 }
 
 export default function Jobs() {
@@ -116,6 +117,22 @@ export default function Jobs() {
             <label className="field">How should industry/domain background be weighed?
               <textarea value={form.domain_context} onChange={set('domain_context')} rows={3}
                         placeholder="e.g. Higher-ed ERP experience is a strong plus but not required — any large-scale enterprise system experience should count as adjacent" /></label>
+          </div>
+
+          <h3 style={{ marginTop: 14 }}>Exceptions to the general level (optional)</h3>
+          <p className="small muted" style={{ marginTop: -8, marginBottom: 12 }}>
+            A single seniority/pay level can't capture every role. Use these when this role is
+            an exception to its own general bar in either direction — a lower-tier role that
+            still needs real depth somewhere specific, or one that's happy to train on something
+            regardless of level.
+          </p>
+          <div className="grid cols-2">
+            <label className="field">Areas that need genuinely strong depth, even though the role is lower-tier/lower-pay overall
+              <textarea value={form.critical_depth_areas} onChange={set('critical_depth_areas')} rows={3}
+                        placeholder="e.g. This is an entry-level support role, but they must already be genuinely strong at SQL — that part isn't negotiable" /></label>
+            <label className="field">Areas we're happy to train on, regardless of level — don't hold candidates to these
+              <textarea value={form.flexible_growth_areas} onChange={set('flexible_growth_areas')} rows={3}
+                        placeholder="e.g. No prior Kubernetes or cloud experience needed — we'll teach that on the job" /></label>
           </div>
           <button className="btn" disabled={busy}>{busy ? 'Creating…' : 'Create job'}</button>
         </form>

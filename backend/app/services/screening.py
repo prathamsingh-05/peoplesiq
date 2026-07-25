@@ -172,7 +172,16 @@ literature and NYC LL144 / EEOC-style controls):
     suggests the opposite. Computed entirely from decision data already
     stored, surfaced in the responsible-AI report
     (`reporting._disagreement_criteria`).
-26. These are enforced by `tests/test_scoring_principles.py`,
+26. A single seniority/pay dial can't express every real shape a role takes:
+    an overall lower-tier, lower-pay role can still genuinely need real depth
+    in one specific area (`critical_depth_areas` — held to a senior-level bar
+    even though everything else is judged at the general band), and the
+    reverse is just as real: a role can be happy to train on specific areas
+    regardless of its general tier (`flexible_growth_areas` — weak or missing
+    evidence there must never count against a candidate). Both are explicit
+    exceptions layered on top of the general calibration, not a replacement
+    for it (`_calibration_block`).
+27. These are enforced by `tests/test_scoring_principles.py`,
     `tests/test_career_timeline.py`, and `tests/test_reporting.py`, not just
     described here — a change that violates one of these rules should fail
     that suite, on purpose.
@@ -639,6 +648,25 @@ def _calibration_block(job) -> str:
             f"hiring team: {domain_context} Only apply this as a hard gate if the hiring "
             "team's note above says so explicitly — otherwise treat it as guidance on "
             "how much credit adjacent-domain experience deserves, not a knock-out."
+        )
+    critical_depth = (getattr(job, "critical_depth_areas", "") or "").strip()
+    if critical_depth:
+        lines.append(
+            "IMPORTANT EXCEPTION to the general calibration above: even though the overall "
+            "level/pay-band sets a lower general bar, the hiring team needs genuine, "
+            f"real depth — NOT entry-level 'good enough' — specifically in: {critical_depth}. "
+            "Hold criteria touching these areas to a meaningfully higher bar than the rest "
+            "of the role, exactly as you would for a senior/lead role, while still judging "
+            "everything else against the general band above."
+        )
+    flexible_growth = (getattr(job, "flexible_growth_areas", "") or "").strip()
+    if flexible_growth:
+        lines.append(
+            "IMPORTANT EXCEPTION to the general calibration above: the hiring team is happy "
+            f"to train on the job and does not expect existing depth in: {flexible_growth}. "
+            "Weak or no evidence here should NOT count against a candidate — treat exposure "
+            "or adjacent experience in these areas as a plus, never require it, and never let "
+            "a gap here pull down the overall read of an otherwise strong candidate."
         )
     if not lines:
         return ""

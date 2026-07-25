@@ -80,6 +80,16 @@ Rules:
   is_mandatory=true if that note explicitly says specific domain experience is a hard
   requirement — by default, domain background is real signal but not a knock-out on
   its own, since capable people cross industries constantly.
+- A single pay-band/seniority dial can't express "overall this is a lower-tier role, but
+  one specific area still needs real depth" — a common real shape (e.g. an entry-level
+  support role that still needs genuinely strong SQL). If the job details name areas
+  needing genuine depth despite the general band, write those specific criteria's
+  descriptions at the depth a senior/lead role would demand, weighted 2.5-3.0 — do not
+  soften them just because the rest of the scorecard is calibrated lower. Conversely, if
+  the job details name areas the team is happy to train on, write those criteria's
+  descriptions to require only awareness/willingness-to-learn (or omit the criterion
+  entirely if nothing to screen for), weighted low (0.5-1.0) or moved to preferred — never
+  let a gap there carry real weight.
 - Write each criterion broadly enough to credit equivalent or adjacent experience, not
   only an exact keyword match. Prefer "cloud infrastructure experience (AWS, Azure, or
   GCP)" over "AWS Lambda specifically," unless the JD names one exact tool as required.
@@ -128,6 +138,9 @@ What "good enough" looks like at this level: {job.good_enough_note or 'Not speci
 Success criteria (first 6-12 months): {job.success_criteria or 'Not specified'}
 Example of a strong-fit candidate for this role: {job.ideal_candidate_profile or 'Not specified'}
 How industry/domain background should be weighed: {job.domain_context or 'Not specified'}
+Areas that need genuine depth even though the overall role/pay is lower-tier (write these
+criteria's descriptions at real depth, not the entry-level bar used elsewhere): {job.critical_depth_areas or 'Not specified'}
+Areas the team is happy to train on — do not demand existing depth here: {job.flexible_growth_areas or 'Not specified'}
 
 Full job description:
 <job_description>

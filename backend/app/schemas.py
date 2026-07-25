@@ -45,6 +45,8 @@ class JobCreate(BaseModel):
     success_criteria: str = ""
     ideal_candidate_profile: str = ""
     domain_context: str = ""
+    critical_depth_areas: str = ""
+    flexible_growth_areas: str = ""
 
 
 class JobUpdate(BaseModel):
@@ -66,6 +68,8 @@ class JobUpdate(BaseModel):
     success_criteria: str | None = None
     ideal_candidate_profile: str | None = None
     domain_context: str | None = None
+    critical_depth_areas: str | None = None
+    flexible_growth_areas: str | None = None
     status: str | None = Field(default=None, pattern=r"^(draft|active|on_hold|closed)$")
 
 

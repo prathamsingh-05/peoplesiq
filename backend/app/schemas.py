@@ -47,6 +47,9 @@ class JobCreate(BaseModel):
     domain_context: str = ""
     critical_depth_areas: str = ""
     flexible_growth_areas: str = ""
+    team_context: str = ""
+    role_challenges: str = ""
+    screening_priorities: str = ""
 
 
 class JobUpdate(BaseModel):
@@ -70,6 +73,9 @@ class JobUpdate(BaseModel):
     domain_context: str | None = None
     critical_depth_areas: str | None = None
     flexible_growth_areas: str | None = None
+    team_context: str | None = None
+    role_challenges: str | None = None
+    screening_priorities: str | None = None
     status: str | None = Field(default=None, pattern=r"^(draft|active|on_hold|closed)$")
 
 

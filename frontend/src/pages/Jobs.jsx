@@ -11,6 +11,7 @@ const EMPTY = {
   seniority_tier: '', good_enough_note: '', success_criteria: '',
   ideal_candidate_profile: '', domain_context: '',
   critical_depth_areas: '', flexible_growth_areas: '',
+  team_context: '', role_challenges: '', screening_priorities: '',
 }
 
 export default function Jobs() {
@@ -133,6 +134,24 @@ export default function Jobs() {
             <label className="field">Areas we're happy to train on, regardless of level — don't hold candidates to these
               <textarea value={form.flexible_growth_areas} onChange={set('flexible_growth_areas')} rows={3}
                         placeholder="e.g. No prior Kubernetes or cloud experience needed — we'll teach that on the job" /></label>
+          </div>
+
+          <h3 style={{ marginTop: 14 }}>Intake questions — these move scoring accuracy the most</h3>
+          <p className="small muted" style={{ marginTop: -8, marginBottom: 12 }}>
+            These are the three questions a senior recruiter asks the hiring manager before
+            screening anyone, and a JD almost never answers them on its own. Filling them in
+            changes how the AI reads every resume for this role, not just what it reports.
+          </p>
+          <div className="grid cols-3">
+            <label className="field">Who will they work with, and how independently?
+              <textarea value={form.team_context} onChange={set('team_context')} rows={3}
+                        placeholder="e.g. Only data person in a 12-person team, reports to the ops head — nobody senior to check their work" /></label>
+            <label className="field">What actually makes this role hard? (or why is it open?)
+              <textarea value={form.role_challenges} onChange={set('role_challenges')} rows={3}
+                        placeholder="e.g. The data is messy and undocumented — the last person struggled with figuring things out unaided" /></label>
+            <label className="field">If you could only verify 2 things from a resume, what would they be?
+              <textarea value={form.screening_priorities} onChange={set('screening_priorities')} rows={3}
+                        placeholder="e.g. That they've genuinely written complex SQL themselves, and that they've worked without close supervision" /></label>
           </div>
           <button className="btn" disabled={busy}>{busy ? 'Creating…' : 'Create job'}</button>
         </form>

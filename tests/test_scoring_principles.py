@@ -9,7 +9,8 @@ from app.services.screening import (
     SHORTLIST_THRESHOLD, _calibration_block, _closing_the_gap, _compute_score,
     _detect_experience_discrepancy, _detect_inconsistent_criteria, _detect_injection_signals,
     _deterministic_evaluate, _lpa_band_guidance, _parse_lpa, _recommend, _token_variants,
-    _verify_evidence, build_recruiter_guidance, pool_insight, top_differentiators,
+    _verify_evidence, build_recruiter_guidance, dimension_headline, pool_insight,
+    score_dimensions, top_differentiators,
 )
 from app.services.scorecard import _deterministic_scorecard, _is_logistics_condition
 
@@ -720,3 +721,131 @@ def test_top_differentiators_no_signal_when_pool_is_even():
     result = top_differentiators(evals)
     assert result["available"] is True
     assert result["differentiators"] == []
+
+
+# ---------------------------------------------------------------------------
+# Principle 12, enforced in code rather than merely requested in a prompt:
+# a self-selected logistics condition must NEVER act as a mandatory knock-out,
+# no matter how the scorecard got marked (AI ignoring the instruction, or a
+# recruiter hand-editing the scorecard in the UI).
+# ---------------------------------------------------------------------------
+def test_logistics_criterion_marked_mandatory_cannot_knock_a_candidate_out():
+    results = [
+        _criterion("Core skill", 2.0, "confirmed", category="technical_skills"),
+        _criterion("Willing to work night shift", 1.0, "no_evidence",
+                   mandatory=True, category="location_hours"),
+    ]
+    score, mandatory_status = _compute_score(results)
+    # Excluded from the score (principle 8) AND from the knock-out gate (12).
+    assert score == 100.0
+    assert mandatory_status == "met"
+    recommendation, _ = _recommend(
+        score, mandatory_status, results, {"confidence": "high"}, "llm"
+    )
+    assert recommendation == "shortlist"
+
+
+def test_two_logistics_gaps_still_cannot_produce_a_rejection():
+    results = [
+        _criterion("Core skill", 2.0, "confirmed", category="technical_skills"),
+        _criterion("Night shift", 1.0, "no_evidence", mandatory=True, category="location_hours"),
+        _criterion("Relocation", 1.0, "no_evidence", mandatory=True, category="location_hours"),
+    ]
+    score, mandatory_status = _compute_score(results)
+    assert mandatory_status == "met"
+    recommendation, _ = _recommend(
+        score, mandatory_status, results, {"confidence": "high"}, "llm"
+    )
+    assert recommendation != "do_not_shortlist"
+
+
+def test_real_mandatory_criteria_still_gate_normally():
+    """The logistics carve-out must not weaken genuine knock-outs."""
+    results = [
+        _criterion("Work authorization", 3.0, "no_evidence", mandatory=True, category="mandatory"),
+        _criterion("Security clearance", 3.0, "no_evidence", mandatory=True, category="mandatory"),
+    ]
+    _, mandatory_status = _compute_score(results)
+    assert mandatory_status == "not_met"
+
+
+# ---------------------------------------------------------------------------
+# A degenerate all-preferred scorecard must not score the same evidence twice
+# (once as the fallback core score, again as a bonus on top).
+# ---------------------------------------------------------------------------
+def test_all_preferred_scorecard_does_not_double_count_bonus():
+    results = [
+        _criterion("Nice A", 1.0, "confirmed", category="preferred"),
+        _criterion("Nice B", 1.0, "no_evidence", category="preferred"),
+    ]
+    score, _ = _compute_score(results)
+    assert score == 50.0  # not 55.0 — no bonus stacked on the fallback core
+
+
+def test_normal_scorecard_still_gets_its_bonus():
+    core_only = [_criterion("Core", 2.0, "needs_verification", category="technical_skills")]
+    with_bonus = core_only + [_criterion("Nice", 1.0, "confirmed", category="preferred")]
+    assert _compute_score(with_bonus)[0] > _compute_score(core_only)[0]
+
+
+# ---------------------------------------------------------------------------
+# Principle 29: dimensional breakdown, and the coverage figure that keeps a
+# blind spot from being reported as a weakness.
+# ---------------------------------------------------------------------------
+def test_dimensions_group_by_category_and_match_state_scores():
+    results = [
+        _criterion("Skill A", 1.0, "confirmed", category="technical_skills"),
+        _criterion("Skill B", 1.0, "no_evidence", category="technical_skills"),
+        _criterion("Domain", 1.0, "confirmed", category="domain"),
+    ]
+    dims = {d["key"]: d for d in score_dimensions(results)}
+    assert dims["technical_skills"]["score"] == 50.0
+    assert dims["technical_skills"]["criterion_count"] == 2
+    assert dims["domain"]["score"] == 100.0
+
+
+def test_must_haves_dimension_covers_mandatory_criteria_of_any_category():
+    """A knock-out filed under experience is still a must-have — reporting
+    'Must-haves: 100' while one has no evidence would be actively misleading."""
+    results = [
+        _criterion("5+ yrs experience", 3.0, "no_evidence", mandatory=True, category="experience"),
+        _criterion("Clearance", 3.0, "confirmed", mandatory=True, category="mandatory"),
+    ]
+    dims = {d["key"]: d for d in score_dimensions(results)}
+    assert dims["must_haves"]["criterion_count"] == 2
+    assert dims["must_haves"]["score"] == 50.0
+
+
+def test_must_haves_dimension_excludes_logistics_mandatory():
+    results = [
+        _criterion("Clearance", 3.0, "confirmed", mandatory=True, category="mandatory"),
+        _criterion("Night shift", 1.0, "no_evidence", mandatory=True, category="location_hours"),
+    ]
+    dims = {d["key"]: d for d in score_dimensions(results)}
+    assert dims["must_haves"]["criterion_count"] == 1
+    assert dims["must_haves"]["score"] == 100.0
+
+
+def test_dimension_coverage_separates_unknown_from_weak():
+    unknown = [
+        _criterion("Skill A", 1.0, "needs_verification", category="technical_skills"),
+        _criterion("Skill B", 1.0, "needs_verification", category="technical_skills"),
+    ]
+    genuinely_weak = [
+        _criterion("Skill A", 1.0, "contradictory", category="technical_skills"),
+        _criterion("Skill B", 1.0, "contradictory", category="technical_skills"),
+    ]
+    u = score_dimensions(unknown)[0]
+    w = score_dimensions(genuinely_weak)[0]
+    assert u["evidence_coverage_pct"] == 0     # resume said nothing
+    assert w["evidence_coverage_pct"] == 100   # resume actively conflicted
+    # A blind spot must not be described as a weakness.
+    assert "light on" not in dimension_headline(score_dimensions(unknown))
+    assert "doesn't really tell you about" in dimension_headline(score_dimensions(unknown))
+    assert "light on" in dimension_headline(score_dimensions(genuinely_weak))
+
+
+def test_dimension_headline_empty_without_scored_dimensions():
+    assert dimension_headline([]) == ""
+    only_bonus = [_criterion("Nice", 1.0, "confirmed", category="preferred")]
+    assert dimension_headline(score_dimensions(only_bonus)) == ""

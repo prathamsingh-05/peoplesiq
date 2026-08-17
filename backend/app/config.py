@@ -76,5 +76,19 @@ REJECT_REVIEW_SAMPLE_RATE = float(os.environ.get("PEOPLEIQ_REVIEW_SAMPLE_RATE", 
 LOGIN_MAX_ATTEMPTS = int(os.environ.get("PEOPLEIQ_LOGIN_MAX_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_SECONDS = int(os.environ.get("PEOPLEIQ_LOGIN_LOCKOUT_SECONDS", "900"))
 
+# --- Web hardening ----------------------------------------------------------
+# Interactive API docs expose the full endpoint surface and schema. Useful in
+# development, unnecessary attack surface in production — off unless asked for.
+ENABLE_API_DOCS = os.environ.get("PEOPLEIQ_ENABLE_API_DOCS", "false").lower() == "true"
+# Browser origins allowed to call the API with credentials. Defaults to the
+# Vite dev server only; production is single-origin so it needs no entries.
+CORS_ORIGINS = [
+    o.strip() for o in os.environ.get(
+        "PEOPLEIQ_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",") if o.strip()
+]
+# Send HSTS (only meaningful over HTTPS; harmless behind Railway's TLS).
+ENABLE_HSTS = os.environ.get("PEOPLEIQ_ENABLE_HSTS", "true").lower() == "true"
+
 COMPANY_NAME = os.environ.get("PEOPLEIQ_COMPANY_NAME", "People IQ")
 CLIENT_NAME_DEFAULT = os.environ.get("PEOPLEIQ_DEFAULT_CLIENT", "OculusIT")

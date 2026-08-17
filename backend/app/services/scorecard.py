@@ -7,7 +7,7 @@ before any resume can be screened (human-in-the-loop gate #1).
 from __future__ import annotations
 
 from ..models import CriterionCategory, Job
-from . import llm
+from . import llm, role_archetype
 from .screening import _lpa_band_guidance
 
 SCORECARD_SCHEMA = {
@@ -112,6 +112,13 @@ Rules:
   description broadly enough to say so explicitly ("accept common aliases/
   abbreviations"), so the screening engine doesn't miss real evidence over a naming
   technicality.
+- If the job details describe the team context, what makes the role hard, or what the
+  hiring team would most want verified, let those shape the scorecard directly: the
+  "what makes this role hard" answer usually deserves its own criterion (it is the part
+  most likely to decide whether someone succeeds), the "most want verified" answers
+  should be covered by criteria carrying real weight rather than left implicit, and the
+  team context tells you how much independence to demand — a sole-contributor role needs
+  proven autonomy in a way a role inside a large senior team does not.
 - Each description must state what EVIDENCE in a resume would satisfy the criterion.
 - Never create criteria about age, gender, marital status, religion, caste, nationality,
   health, photographs, school prestige, or anything a resume cannot lawfully evidence."""
@@ -141,11 +148,31 @@ How industry/domain background should be weighed: {job.domain_context or 'Not sp
 Areas that need genuine depth even though the overall role/pay is lower-tier (write these
 criteria's descriptions at real depth, not the entry-level bar used elsewhere): {job.critical_depth_areas or 'Not specified'}
 Areas the team is happy to train on — do not demand existing depth here: {job.flexible_growth_areas or 'Not specified'}
+Team context this person joins (how much independence the role really demands): {job.team_context or 'Not specified'}
+What actually makes this role hard, per the hiring team: {job.role_challenges or 'Not specified'}
+The two things the hiring team would most want verified about a candidate: {job.screening_priorities or 'Not specified'}
 
 Full job description:
 <job_description>
 {job.description[:20000]}
 </job_description>"""
+
+    # Role family shapes what evidence a criterion should ask FOR — a sales
+    # criterion should demand quota/deal evidence, an engineering one systems
+    # and scale. Without this, criteria get written in generic "demonstrated
+    # experience with X" terms that screen every role family identically.
+    archetype = role_archetype.detect_archetype(
+        job.title, job.description, list(job.essential_skills or [])
+    )
+    archetype_text = role_archetype.archetype_block(archetype)
+    if archetype_text:
+        jd_block += (
+            "\n\n" + archetype_text
+            + "\nWrite each criterion's description to ask for the kind of evidence this "
+              "role family actually produces (including the numbers named above where "
+              "relevant), and avoid writing criteria that the family's listed trap would "
+              "satisfy."
+        )
 
     try:
         result = llm.structured_call(

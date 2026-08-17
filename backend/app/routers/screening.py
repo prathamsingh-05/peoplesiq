@@ -69,6 +69,10 @@ def _evaluation_out(evaluation: Evaluation) -> dict:
         "missing_information": evaluation.missing_information,
         "inconsistencies": evaluation.inconsistencies,
         "verification_questions": evaluation.verification_questions,
+        "score_dimensions": evaluation.score_dimensions,
+        "dimension_headline": evaluation.dimension_headline,
+        "role_family": evaluation.role_family,
+        "scope_assessment": evaluation.scope_assessment,
         "engine": evaluation.engine, "model_used": evaluation.model_used,
         "created_at": evaluation.created_at.isoformat(),
     }

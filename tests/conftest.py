@@ -26,6 +26,22 @@ def client():
         yield test_client
 
 
+@pytest.fixture
+def anon_client():
+    """A guaranteed-unauthenticated client.
+
+    The session-scoped `client` fixture cannot be used for auth-gate tests:
+    `auth_client` sets a persistent Authorization header on that same object,
+    so once it has run, `client` is authenticated for the rest of the session.
+    This fixture builds a fresh client per test with no credentials at all.
+    """
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+
 @pytest.fixture(scope="session")
 def auth_client(client):
     response = client.post("/api/auth/login", json={

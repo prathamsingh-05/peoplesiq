@@ -14,6 +14,7 @@ from ..models import (
     Candidate, Job, JobStatus, Scorecard, ScorecardCriterion, ScorecardStatus, User,
 )
 from ..schemas import JobCreate, JobUpdate, ScorecardUpdate
+from ..services import role_archetype
 from ..services.scorecard import generate_scorecard_criteria
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -40,6 +41,12 @@ def _job_out(job: Job, db: Session | None = None) -> dict:
         "domain_context": job.domain_context,
         "critical_depth_areas": job.critical_depth_areas,
         "flexible_growth_areas": job.flexible_growth_areas,
+        "team_context": job.team_context,
+        "role_challenges": job.role_challenges,
+        "screening_priorities": job.screening_priorities,
+        "role_family": role_archetype.detect_archetype(
+            job.title, job.description, list(job.essential_skills or [])
+        )["label"],
         "status": job.status,
         "owner": job.owner.full_name if job.owner else "",
         "candidate_count": len(job.candidates),
@@ -111,7 +118,8 @@ def update_job(job_id: int, payload: JobUpdate, request: Request,
                  "mandatory_conditions", "min_experience_years", "qualifications",
                  "seniority_tier", "compensation_range", "good_enough_note",
                  "success_criteria", "ideal_candidate_profile", "domain_context",
-                 "critical_depth_areas", "flexible_growth_areas"}
+                 "critical_depth_areas", "flexible_growth_areas", "team_context",
+                 "role_challenges", "screening_priorities"}
     for key, value in changes.items():
         setattr(job, key, value)
     # Changing the requirement invalidates approval: scorecard must be re-approved.

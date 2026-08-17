@@ -116,6 +116,16 @@ class Job(Base):
     # where to relax it because the team is happy to train.
     critical_depth_areas: Mapped[str] = mapped_column(Text, default="")
     flexible_growth_areas: Mapped[str] = mapped_column(Text, default="")
+    # Job-analysis intake (the hiring-research finding that assessment mapped to
+    # a real job analysis is far more valid than generic assessment). These are
+    # the three questions a senior recruiter asks a hiring manager in intake
+    # that a JD almost never answers on its own:
+    #   who they'll actually work with and how independently,
+    #   what makes this role genuinely hard / why it's open,
+    #   and what the recruiter would verify first if they could only check two things.
+    team_context: Mapped[str] = mapped_column(Text, default="")
+    role_challenges: Mapped[str] = mapped_column(Text, default="")
+    screening_priorities: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(32), default=JobStatus.draft.value)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -357,6 +367,16 @@ class Evaluation(Base):
     # services/screening.py principle 14).
     overall_impression: Mapped[str] = mapped_column(String(24), default="")
     overall_impression_note: Mapped[str] = mapped_column(Text, default="")
+    # Per-dimension breakdown of the headline score, each with its own evidence
+    # coverage — so a recruiter can see WHERE a candidate is strong/weak/unknown
+    # instead of one opaque number (services/screening.py principle 29).
+    score_dimensions: Mapped[list] = mapped_column(JSON, default=list)
+    dimension_headline: Mapped[str] = mapped_column(Text, default="")
+    # The role family the JD was read as (principle 27) and the level the resume
+    # actually demonstrates vs. what the role calls for (principle 28) — both
+    # recorded so "why this score" stays fully inspectable after the fact.
+    role_family: Mapped[str] = mapped_column(String(64), default="")
+    scope_assessment: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # Per-criterion results: [{criterion_id, name, category, status, evidence,
     #   evidence_verified, weight, score, notes}] where status ∈

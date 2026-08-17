@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ..models import Candidate, Evaluation, Job
-from . import llm
+from . import llm, role_archetype
 
 QUESTIONS_SCHEMA = {
     "type": "object",
@@ -57,6 +57,14 @@ HOLISTIC COVERAGE — this is what turns a checklist into a real conversation:
   even though the role overall is lower-tier/lower-pay), make sure at least one
   skill_evidence question probes that specific area hard, not just the generic
   essential skills.
+- If the hiring team named what they would most want verified, or what actually makes
+  this role hard, at least one question must go directly at each of those — they are the
+  highest-value minutes of the call.
+- Ask for the numbers that this ROLE FAMILY is actually measured in when the resume
+  omits them (a sales resume with no quota attainment, a support resume with no ticket
+  volume or tier, a data resume with no decision the analysis drove). The role-family
+  section below names them; a question that recovers a missing family-standard number is
+  worth more than another generic skills question.
 - Do not turn every category into a rote checklist item — a holistic pack reads like a
   recruiter who actually read this specific resume, not a generic template."""
 
@@ -73,6 +81,10 @@ def generate_questions(candidate: Candidate, evaluation: Evaluation, job: Job) -
 Location/model/hours: {job.location} | {job.work_model} | {job.working_hours}
 Notice-period preference: {job.notice_period_preference or 'Not specified'}
 Areas needing genuine depth despite the general level: {job.critical_depth_areas or 'None specified'}
+What actually makes this role hard, per the hiring team: {job.role_challenges or 'Not specified'}
+The things the hiring team would most want verified: {job.screening_priorities or 'Not specified'}
+{role_archetype.archetype_block(role_archetype.detect_archetype(
+    job.title, job.description or '', list(job.essential_skills or [])))}
 
 Evaluation summary: {evaluation.executive_summary}
 Identified gaps: {gaps}

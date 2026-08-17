@@ -181,10 +181,47 @@ literature and NYC LL144 / EEOC-style controls):
     evidence there must never count against a candidate). Both are explicit
     exceptions layered on top of the general calibration, not a replacement
     for it (`_calibration_block`).
-27. These are enforced by `tests/test_scoring_principles.py`,
-    `tests/test_career_timeline.py`, and `tests/test_reporting.py`, not just
-    described here — a change that violates one of these rules should fail
-    that suite, on purpose.
+27. What counts as evidence depends on the ROLE FAMILY, not just the
+    criterion text. Quota attainment and deal shape are the real signals for
+    a sales role; systems built and scale owned for engineering; ticket tier
+    and escalation independence for support; the decision an analysis drove
+    for data work. Each family also has its own trap — the thing that looks
+    impressive but isn't evidence (a twenty-item technology list, activity
+    metrics standing in for sales results, HR function lists with no volume).
+    The family is detected deterministically from the JD and injected as a
+    reading lens into both scorecard generation and evaluation; it never adds
+    criteria and never directly moves a score, so a misdetection degrades
+    into slightly-off guidance rather than a wrong number
+    (`role_archetype.py`). This mirrors the hiring-research finding that
+    assessment mapped to job-analysis-derived competencies is substantially
+    more valid than generic assessment, and that screening should be
+    calibrated per role family rather than on one universal scale.
+28. Level is judged from demonstrated SCOPE, not from job titles. Titles are
+    unreliable in both directions — inflation hands senior titles to roles
+    without the scope, and some large employers systematically under-title —
+    so the engine reads the resume's own ownership/scale language to
+    establish the level actually demonstrated, and compares that to the
+    role's calibrated level (`seniority_signals.py`). Deliberately
+    symmetrical and never punitive: scope above the role's level is a
+    motivation/retention conversation (and possibly just an under-titled
+    strong candidate), scope below it is something to verify on the call,
+    because resumes routinely under-describe real ownership. Like career
+    gaps and logistics (principles 8, 12, 20), a mismatch is flagged for the
+    recruiter and never priced into the score.
+29. One number is not a result: the same 62 can mean "strong technically,
+    domain unknown" or "mediocre at everything," and those are completely
+    different candidates. The score is therefore also broken into the
+    dimensions a recruiter actually reasons in, each carrying its own
+    evidence-coverage figure so a genuine weakness is never confused with a
+    blind spot — a dimension scoring low because the resume said nothing is
+    a question for the call, not a conclusion (`score_dimensions`,
+    `dimension_headline`). Derived from the same STATE_SCORES weighting as
+    `_compute_score`, so the breakdown can never contradict the headline.
+30. These are enforced by `tests/test_scoring_principles.py`,
+    `tests/test_career_timeline.py`, `tests/test_role_archetype.py`,
+    `tests/test_seniority_signals.py`, and `tests/test_reporting.py`, not
+    just described here — a change that violates one of these rules should
+    fail that suite, on purpose.
 """
 from __future__ import annotations
 
@@ -193,7 +230,7 @@ import json
 import re
 
 from ..models import Evaluation, Scorecard
-from . import career_timeline, llm
+from . import career_timeline, llm, role_archetype, seniority_signals
 from .fairness import FAIRNESS_RULES_PROMPT
 
 EVIDENCE_STATES = ["confirmed", "partial", "no_evidence", "contradictory", "needs_verification"]
@@ -268,7 +305,12 @@ HOW TO APPROACH EVERY ASSESSMENT, IN ORDER:
    is this (seniority tier, pay band, "good enough" description if given), what does
    it actually need (the scorecard criteria and their weights/mandatory flags), and
    what would a realistic, appropriate candidate for THIS specific role look like —
-   not an idealised candidate for some other, more senior or better-paid role.
+   not an idealised candidate for some other, more senior or better-paid role. Part of
+   understanding the role is understanding its KIND: what counts as real evidence for a
+   sales role (quota attainment, deal shape) is completely different from an engineering
+   role (systems built, scale owned) or a support role (escalation tier, independence).
+   If a role-family section appears below, treat it as what a recruiter who specialises
+   in that family already knows, and read the resume through that lens.
 2. Then read the entire resume once, start to finish, as a single coherent
    professional profile — the arc of the person's career, what they've actually
    built and owned, how their responsibilities grew. Read every bullet, sentence
@@ -659,6 +701,32 @@ def _calibration_block(job) -> str:
             "of the role, exactly as you would for a senior/lead role, while still judging "
             "everything else against the general band above."
         )
+    team_context = (getattr(job, "team_context", "") or "").strip()
+    if team_context:
+        lines.append(
+            f"Team context this person joins: {team_context} Use this to judge how much "
+            "independence the role actually demands — someone joining a large team with "
+            "senior people around them needs less proven autonomy than someone who will "
+            "be the only person doing this work, and the same resume can be a good fit "
+            "for one and a stretch for the other."
+        )
+    role_challenges = (getattr(job, "role_challenges", "") or "").strip()
+    if role_challenges:
+        lines.append(
+            f"What actually makes this role hard, per the hiring team: {role_challenges} "
+            "This is the part of the job most likely to determine whether someone "
+            "succeeds, so weigh evidence that speaks to it especially carefully, and put "
+            "anything you cannot confirm about it into verification_questions."
+        )
+    screening_priorities = (getattr(job, "screening_priorities", "") or "").strip()
+    if screening_priorities:
+        lines.append(
+            "If only a couple of things could be verified about a candidate for this "
+            f"role, the hiring team says they would be: {screening_priorities} Treat "
+            "these as the highest-value things to be right about — be especially careful "
+            "not to over- or under-read the evidence here, and always surface what "
+            "remains unconfirmed about them."
+        )
     flexible_growth = (getattr(job, "flexible_growth_areas", "") or "").strip()
     if flexible_growth:
         lines.append(
@@ -673,12 +741,29 @@ def _calibration_block(job) -> str:
     return "Role-level calibration for THIS job:\n" + "\n".join(f"- {l}" for l in lines)
 
 
+def _archetype_for(job) -> dict:
+    """Role family for a job-like object (pure; safe on SimpleNamespace)."""
+    return role_archetype.detect_archetype(
+        getattr(job, "title", "") or "",
+        getattr(job, "description", "") or "",
+        list(getattr(job, "essential_skills", None) or []),
+    )
+
+
 def input_hash(redacted_text: str, scorecard: Scorecard, job=None,
                parsed_profile: dict | None = None) -> str:
     calibration = _calibration_block(job) if job is not None else ""
     timeline = career_timeline.build_timeline((parsed_profile or {}).get("employers"))
     tblock = career_timeline.timeline_block(timeline)
-    payload = redacted_text + "||" + calibration + "||" + tblock + "||" + json.dumps(
+    # The archetype and scope blocks change how evidence is read, so they must
+    # be part of the cache key — otherwise editing a JD's title/description
+    # into a different role family would silently reuse the old evaluation.
+    ablock = role_archetype.archetype_block(_archetype_for(job)) if job is not None else ""
+    sblock = seniority_signals.scope_block(seniority_signals.assess_level_alignment(
+        redacted_text, getattr(job, "seniority_tier", "") or "" if job is not None else ""
+    ))
+    payload = (redacted_text + "||" + calibration + "||" + tblock + "||" + ablock
+               + "||" + sblock + "||") + json.dumps(
         [
             {
                 "id": c.id, "cat": c.category, "name": c.name,
@@ -700,8 +785,16 @@ def evaluate(redacted_text: str, scorecard: Scorecard, job,
     ready to persist on Evaluation."""
     timeline = career_timeline.build_timeline((parsed_profile or {}).get("employers"))
     tblock = career_timeline.timeline_block(timeline)
+    archetype = _archetype_for(job)
+    scope = seniority_signals.assess_level_alignment(
+        redacted_text, getattr(job, "seniority_tier", "") or ""
+    )
     try:
-        raw = _llm_evaluate(redacted_text, scorecard, job, tblock)
+        raw = _llm_evaluate(
+            redacted_text, scorecard, job, tblock,
+            role_archetype.archetype_block(archetype),
+            seniority_signals.scope_block(scope),
+        )
         engine = "llm"
     except llm.LLMUnavailable:
         raw = _deterministic_evaluate(redacted_text, scorecard)
@@ -709,6 +802,7 @@ def evaluate(redacted_text: str, scorecard: Scorecard, job,
 
     results = _reconcile_criteria(raw.get("criterion_results", []), scorecard, redacted_text)
     score, mandatory_status = _compute_score(results)
+    dimensions = score_dimensions(results)
     recommendation, explanation = _recommend(
         score, mandatory_status, results, raw, engine
     )
@@ -726,6 +820,11 @@ def evaluate(redacted_text: str, scorecard: Scorecard, job,
         consistency_flags.append(experience_flag)
     injection_hits = _detect_injection_signals(redacted_text)
     risk_flags = list(raw.get("risk_flags", [])[:8]) + consistency_flags
+    # Scope/level mismatch is flagged for the call, never scored (principle 28)
+    # — including the "above" case, where under-titling by a previous employer
+    # is at least as likely an explanation as genuine over-qualification.
+    if scope.get("alignment") in ("above", "below") and scope.get("note"):
+        risk_flags.append(scope["note"])
     if injection_hits:
         risk_flags.append(
             "Possible manipulation attempt detected in the resume text (phrasing resembling "
@@ -759,12 +858,26 @@ def evaluate(redacted_text: str, scorecard: Scorecard, job,
         "missing_information": raw.get("missing_information", [])[:10],
         "inconsistencies": raw.get("inconsistencies", [])[:8],
         "verification_questions": raw.get("verification_questions", [])[:10],
+        # Deterministic, derived structure — the shape of the candidate rather
+        # than one opaque number, plus how the role family and demonstrated
+        # scope were read (so "why this score" is fully inspectable).
+        "score_dimensions": dimensions,
+        "dimension_headline": dimension_headline(dimensions),
+        "role_family": archetype.get("label", ""),
+        "scope_assessment": {
+            "demonstrated_scope": scope.get("demonstrated_scope"),
+            "expected_scope": scope.get("expected_scope"),
+            "alignment": scope.get("alignment"),
+            "note": scope.get("note", ""),
+            "scale_claim_count": scope.get("scale_claim_count", 0),
+        },
         "engine": engine,
     }
 
 
 def _llm_evaluate(redacted_text: str, scorecard: Scorecard, job,
-                  timeline_block: str = "") -> dict:
+                  timeline_block: str = "", archetype_block: str = "",
+                  scope_block: str = "") -> dict:
     criteria_block = "\n".join(
         f"- criterion_id={c.id} | category={c.category} | mandatory={c.is_mandatory} | "
         f"weight={c.weight} | {c.name}: {c.description}"
@@ -777,8 +890,12 @@ def _llm_evaluate(redacted_text: str, scorecard: Scorecard, job,
         "No role-level calibration details were provided for this job — judge against "
         "the criteria and their descriptions as written.",
     ]
+    if archetype_block:
+        sections.append(archetype_block)
     if timeline_block:
         sections.append(timeline_block)
+    if scope_block:
+        sections.append(scope_block)
     sections.append(f"Approved scorecard criteria:\n{criteria_block}")
     sections.append(
         f"Resume (protected attributes redacted):\n<resume>\n{redacted_text[:30000]}\n</resume>"
@@ -1001,19 +1118,36 @@ def _compute_score(results: list) -> tuple[float, str]:
     core = [r for r in results
             if r["category"] not in SCORE_EXCLUDED_CATEGORIES
             and r["category"] not in BONUS_CATEGORIES]
+    # Degenerate scorecards (nothing but preferred/logistics criteria) still
+    # need a score, so fall back to whatever is scoreable. When that fallback
+    # pulls the bonus criteria in as core, the bonus block below must be
+    # skipped — otherwise the same evidence is counted twice, once as the core
+    # score and again as a bonus on top of it.
+    used_bonus_as_core = False
     if not core:
         core = [r for r in results if r["category"] not in SCORE_EXCLUDED_CATEGORIES] or results
+        used_bonus_as_core = any(r["category"] in BONUS_CATEGORIES for r in core)
     total_weight = sum(r["weight"] for r in core) or 1.0
     earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in core)
     score = 100.0 * earned / total_weight
 
-    bonus = [r for r in results if r["category"] in BONUS_CATEGORIES]
-    bonus_weight = sum(r["weight"] for r in bonus)
-    if bonus_weight:
-        bonus_earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in bonus)
-        score = min(100.0, score + MAX_BONUS_POINTS * bonus_earned / bonus_weight)
+    if not used_bonus_as_core:
+        bonus = [r for r in results if r["category"] in BONUS_CATEGORIES]
+        bonus_weight = sum(r["weight"] for r in bonus)
+        if bonus_weight:
+            bonus_earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in bonus)
+            score = min(100.0, score + MAX_BONUS_POINTS * bonus_earned / bonus_weight)
 
-    mandatory = [r for r in results if r["is_mandatory"]]
+    # Principle 12 enforced in code, not merely requested in a prompt: a
+    # self-selected logistics condition (shift, WFO, relocation, notice period)
+    # must never act as a mandatory knock-out. The scorecard prompt asks the AI
+    # not to mark these mandatory and the offline generator never does — but a
+    # recruiter can edit a scorecard by hand and the AI can ignore an
+    # instruction, and either route would otherwise produce exactly the
+    # automatic rejection this principle forbids. Excluding them here is the
+    # only place that guarantee actually holds.
+    mandatory = [r for r in results
+                 if r["is_mandatory"] and r["category"] not in SCORE_EXCLUDED_CATEGORIES]
     if not mandatory:
         mandatory_status = "met"
     else:
@@ -1025,6 +1159,108 @@ def _compute_score(results: list) -> tuple[float, str]:
         else:
             mandatory_status = "partially_met"
     return score, mandatory_status
+
+
+# Criterion categories grouped into the dimensions a recruiter actually thinks
+# in, with display labels. One overall number tells you a candidate scored 62;
+# it does not tell you whether that's "strong technically, unknown on domain"
+# or "mediocre at everything" — which are completely different candidates that
+# a single score renders identical.
+_DIMENSIONS: list[tuple[str, str, tuple[str, ...]]] = [
+    ("technical_skills", "Technical skills", ("technical_skills",)),
+    ("experience_depth", "Experience & seniority", ("experience", "seniority")),
+    ("domain", "Domain knowledge", ("domain",)),
+    ("qualifications", "Qualifications", ("qualifications",)),
+    ("stability", "Career pattern", ("stability",)),
+    ("nice_to_haves", "Nice-to-haves", ("preferred",)),
+]
+
+# Evidence states that mean "we actually know something" versus states that
+# mean "the resume didn't tell us." Coverage separates a genuine weakness from
+# a blind spot — a dimension scoring low because evidence is missing is a
+# question for the call, not a conclusion about the candidate.
+_KNOWN_STATES = {"confirmed", "partial", "contradictory"}
+
+
+def score_dimensions(results: list) -> list[dict]:
+    """Breaks the single overall score into the dimensions a recruiter reasons
+    about, each with its own score AND an evidence-coverage figure.
+
+    Coverage is the point: a 40 on Technical skills because the resume
+    contradicts the requirement is a real negative, while a 40 because
+    everything is needs_verification is simply unknown. Collapsing both into
+    one overall number is exactly how a screening score becomes "some random
+    number" rather than something a recruiter can act on. Deterministic and
+    derived from the same STATE_SCORES weighting as `_compute_score`, so it
+    can never disagree with the headline score."""
+    out = []
+    # "Must-haves" is defined by the is_mandatory flag, not by the "mandatory"
+    # category: a knock-out requirement is frequently filed under experience or
+    # technical_skills instead. Grouping by category alone showed "Must-haves:
+    # 100" while a mandatory experience criterion had no evidence at all —
+    # precisely the reassurance a recruiter must never be given wrongly. A
+    # criterion can therefore appear both here and in its own dimension, which
+    # is correct for a diagnostic view (unlike scoring, where double-counting
+    # would be a bug).
+    mandatory_items = [r for r in results if r["is_mandatory"]
+                       and r["category"] not in SCORE_EXCLUDED_CATEGORIES]
+    groups: list[tuple[str, str, list]] = [("must_haves", "Must-haves", mandatory_items)]
+    groups += [(key, label, [r for r in results if r["category"] in categories])
+               for key, label, categories in _DIMENSIONS]
+
+    for key, label, items in groups:
+        if not items:
+            continue
+        weight = sum(r["weight"] for r in items) or 1.0
+        earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in items)
+        known = sum(1 for r in items if r["status"] in _KNOWN_STATES)
+        out.append({
+            "key": key,
+            "label": label,
+            "score": round(100.0 * earned / weight, 1),
+            "criterion_count": len(items),
+            "evidence_coverage_pct": round(100.0 * known / len(items)),
+            "scored": key != "nice_to_haves",
+            "confirmed": [r["name"] for r in items if r["status"] == "confirmed"][:4],
+            "unknown": [r["name"] for r in items
+                        if r["status"] in ("needs_verification", "no_evidence")][:4],
+        })
+    return out
+
+
+def dimension_headline(dimensions: list[dict]) -> str:
+    """One plain-language sentence describing the SHAPE of the candidate —
+    where they're strong, where they're genuinely weak, and where the resume
+    simply didn't say. Written for a recruiter with no technical background,
+    and computed from the dimensions rather than asked of the LLM so it can
+    never contradict the numbers it's describing."""
+    scored = [d for d in dimensions if d["scored"] and d["criterion_count"]]
+    if not scored:
+        return ""
+    strong = [d["label"] for d in scored if d["score"] >= 70]
+    # "Weak" requires that we actually know — otherwise it's a blind spot, and
+    # calling a blind spot a weakness is the exact error this function exists
+    # to prevent.
+    weak = [d["label"] for d in scored
+            if d["score"] < 45 and d["evidence_coverage_pct"] >= 50]
+    unknown = [d["label"] for d in scored if d["evidence_coverage_pct"] < 50]
+
+    parts = []
+    if strong:
+        parts.append("Strong on " + ", ".join(strong))
+    if weak:
+        parts.append("genuinely light on " + ", ".join(weak))
+    if unknown:
+        # Capitalised only when it leads the sentence, so a profile whose
+        # dimensions are ALL blind spots doesn't read as a dangling fragment.
+        lead = "t" if parts else "T"
+        parts.append(
+            f"{lead}he resume doesn't really tell you about " + ", ".join(unknown)
+            + " (worth asking, not assuming)"
+        )
+    if not parts:
+        return "A middling but evenly-evidenced profile — no standout strengths or gaps."
+    return "; ".join(parts) + "."
 
 
 def _recommend(score: float, mandatory_status: str, results: list, raw: dict,

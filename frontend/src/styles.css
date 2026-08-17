@@ -191,6 +191,17 @@ pre.profile {
 }
 .progressbar { height: 10px; background: var(--line); border-radius: 6px; overflow: hidden; }
 .progressbar > div { height: 100%; background: var(--accent); transition: width .4s; }
+.progressbar.sm { height: 6px; max-width: 110px; }
+
+/* Per-dimension score chips — the "shape" of a candidate at a glance. */
+.dim-score {
+  display: inline-block; min-width: 2.6em; padding: 2px 8px; border-radius: 6px;
+  font-weight: 600; text-align: center; font-variant-numeric: tabular-nums;
+}
+.dim-score.good { background: #e6f6ec; color: #1a7f43; }
+.dim-score.mid { background: #fff5e5; color: #a35c00; }
+.dim-score.weak { background: #fdeaea; color: #b3261e; }
+.dim-score.unknown { background: var(--line); color: var(--muted); }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 ul.clean { margin: 4px 0; padding-left: 18px; }

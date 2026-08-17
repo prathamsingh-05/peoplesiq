@@ -94,6 +94,52 @@ function CareerTimelineCard({ timeline }) {
   )
 }
 
+function DimensionsCard({ ev }) {
+  if (!ev.score_dimensions?.length) return null
+  const tone = (d) => {
+    if (d.evidence_coverage_pct < 50) return 'unknown'
+    if (d.score >= 70) return 'good'
+    if (d.score >= 45) return 'mid'
+    return 'weak'
+  }
+  return (
+    <div className="card">
+      <div className="row between">
+        <h2>Where they're strong, weak, and unknown</h2>
+        {ev.role_family && <span className="small muted">read as: {ev.role_family}</span>}
+      </div>
+      {ev.dimension_headline && <p>{ev.dimension_headline}</p>}
+      <table className="data">
+        <thead><tr>
+          <th>Dimension</th><th>Score</th><th>Evidence coverage</th><th>Confirmed</th><th>Not established</th>
+        </tr></thead>
+        <tbody>
+          {ev.score_dimensions.map((d) => (
+            <tr key={d.key}>
+              <td><b>{d.label}</b>{!d.scored && <span className="small muted"> (bonus only)</span>}</td>
+              <td><span className={`dim-score ${tone(d)}`}>{Math.round(d.score)}</span></td>
+              <td>
+                <div className="progressbar sm"><div style={{ width: `${d.evidence_coverage_pct}%` }} /></div>
+                <span className="small muted">{d.evidence_coverage_pct}% of {d.criterion_count}</span>
+              </td>
+              <td className="small">{d.confirmed?.join(', ') || <span className="muted">—</span>}</td>
+              <td className="small muted">{d.unknown?.join(', ') || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="small muted">Low evidence coverage means the resume didn't say — that's a
+        question for the call, not a weakness. A low score with high coverage is a real gap.</p>
+      {ev.scope_assessment?.note && (
+        <>
+          <h3>Level actually demonstrated (not job titles)</h3>
+          <p className="small muted">{ev.scope_assessment.note}</p>
+        </>
+      )}
+    </div>
+  )
+}
+
 function AssessmentTab({ candidateId, candidate }) {
   const evaluation = useAsync(
     () => api.get(`/api/candidates/${candidateId}/evaluation`).catch((e) => {
@@ -119,6 +165,7 @@ function AssessmentTab({ candidateId, candidate }) {
 
   return (
     <div>
+      <DimensionsCard ev={ev} />
       <CareerTimelineCard timeline={candidate?.career_timeline} />
       {g && (
         <div className={`guidance-banner ${g.tone}`}>

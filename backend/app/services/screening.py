@@ -217,7 +217,29 @@ literature and NYC LL144 / EEOC-style controls):
     a question for the call, not a conclusion (`score_dimensions`,
     `dimension_headline`). Derived from the same STATE_SCORES weighting as
     `_compute_score`, so the breakdown can never contradict the headline.
-30. These are enforced by `tests/test_scoring_principles.py`,
+30. Relevant experience is the heaviest single factor. Criteria in the
+    experience/seniority categories carry a multiplier over their scorecard
+    weight (`EXPERIENCE_WEIGHT_MULTIPLIER`), and years beyond the role's
+    stated minimum earn bounded, saturating extra credit
+    (`experience_surplus_bonus`) — because criterion states are near-binary
+    and would otherwise score twelve relevant years identically to the three
+    the JD asked for. Both are lift-only and capped: more experience is
+    always at least as good, never dramatically better, so experience
+    amplifies demonstrated substance without ever substituting for it, and
+    over-qualification stays a risk_flags conversation rather than a penalty.
+31. A rating is also relative to who actually applied. The absolute score
+    answers "does this resume evidence what the role needs", which is the
+    right question for fairness but the wrong one for "which of these 120
+    resumes do I call first" — against an idealised bar a whole real pile can
+    score in the 50s, when the useful answer is that these five are the best
+    available. `cohort_scores` therefore rates each candidate against their
+    own pool, with three safeguards: it only ever lifts, never lowers (a
+    strong candidate is never downgraded for the company they're compared
+    against); it never drives a recommendation (shortlist/review/reject stay
+    keyed to evidence); and its ceiling scales with pool size, since topping
+    150 resumes means more than topping three. Recomputed on read, so adding
+    resumes re-ranks everyone already screened.
+32. These are enforced by `tests/test_scoring_principles.py`,
     `tests/test_career_timeline.py`, `tests/test_role_archetype.py`,
     `tests/test_seniority_signals.py`, and `tests/test_reporting.py`, not
     just described here — a change that violates one of these rules should
@@ -490,6 +512,25 @@ TECHNICAL SKILLS — RECOGNIZE THEM ACCURATELY, THEN WEIGHT THEM BY WHAT THE JD 
   that change significantly over time) — a foundational, slow-changing skill (SQL,
   stakeholder management, testing fundamentals) doesn't go stale the same way and
   should not be downgraded just for not being in the candidate's most recent role.
+
+EXPERIENCE IS THE MOST VALUABLE SIGNAL ON A RESUME — weigh it accordingly:
+Depth of genuinely relevant experience is what most reliably predicts whether
+someone can do a job, so treat it as the heaviest single factor in your read of
+overall fit (the scoring code weights experience criteria higher too):
+- Judge RELEVANT years, not total career length. Five years doing work close to
+  this role is worth more than twelve years in an unrelated field, and
+  relevant_experience_years must reflect the former.
+- More relevant experience is genuinely better, not merely "sufficient." A
+  candidate well beyond the stated minimum has more evidence behind them, and
+  that should read as a real strength rather than as neutral once the bar is
+  cleared — say so in key_strengths when it applies.
+- This never overrides the pay-band and level calibration above: it means
+  ranking a more-experienced candidate ahead of a less-experienced one, NOT
+  demanding senior-level experience for a junior role, and NOT treating
+  over-qualification as a negative (that stays a risk_flags conversation).
+- Experience still has to be real: long tenure with nothing shown about what
+  the person actually did is weak evidence, not strong. Years amplify
+  demonstrated substance; they don't substitute for it.
 
 RISK SIGNALS WORTH FLAGGING — put these in risk_flags, never in the score:
 A senior recruiter notices things worth a conversation on the call without
@@ -801,7 +842,9 @@ def evaluate(redacted_text: str, scorecard: Scorecard, job,
         engine = "deterministic"
 
     results = _reconcile_criteria(raw.get("criterion_results", []), scorecard, redacted_text)
-    score, mandatory_status = _compute_score(results)
+    relevant_years = float(raw.get("relevant_experience_years") or 0)
+    min_required_years = float(getattr(job, "min_experience_years", 0) or 0)
+    score, mandatory_status = _compute_score(results, relevant_years, min_required_years)
     dimensions = score_dimensions(results)
     recommendation, explanation = _recommend(
         score, mandatory_status, results, raw, engine
@@ -1113,8 +1156,54 @@ SCORE_EXCLUDED_CATEGORIES = {"location_hours"}
 BONUS_CATEGORIES = {"preferred"}
 MAX_BONUS_POINTS = 10.0
 
+# Experience is treated as the single most valuable signal on a resume, so
+# criteria in these categories carry extra weight in the score relative to
+# whatever the scorecard assigned them. Applied as a multiplier rather than by
+# rewriting scorecard weights, so the recruiter's own relative weighting
+# between individual criteria is preserved — everything experience-related
+# simply counts for more. Deliberately not so large that experience swamps
+# genuine skill evidence: a candidate with long tenure and no relevant skills
+# must still score below one with both.
+EXPERIENCE_CATEGORIES = {"experience", "seniority"}
+EXPERIENCE_WEIGHT_MULTIPLIER = 1.75
 
-def _compute_score(results: list) -> tuple[float, str]:
+# Extra credit for experience BEYOND the role's stated minimum. The criterion
+# states alone are close to binary (they answer "does this person clear the
+# bar"), so without this a candidate with 12 relevant years scores identically
+# to one with the 3 the JD asked for. Capped and saturating so that more years
+# is always at least as good, never dramatically better — an extra decade
+# shouldn't outweigh actually having the skills, and over-qualification stays
+# a conversation for the call (a risk flag), never a penalty.
+MAX_EXPERIENCE_SURPLUS_BONUS = 8.0
+EXPERIENCE_SURPLUS_SATURATION_YEARS = 5.0
+
+
+def experience_surplus_bonus(relevant_years: float, min_required_years: float) -> float:
+    """Bonus points for exceeding the role's minimum experience. Returns 0.0
+    when the role states no minimum (nothing to exceed) or the candidate is at
+    or below it — this only ever adds, never subtracts."""
+    if not min_required_years or min_required_years <= 0:
+        return 0.0
+    surplus = (relevant_years or 0.0) - min_required_years
+    if surplus <= 0:
+        return 0.0
+    saturation = min(1.0, surplus / EXPERIENCE_SURPLUS_SATURATION_YEARS)
+    return round(MAX_EXPERIENCE_SURPLUS_BONUS * saturation, 2)
+
+
+def _effective_weight(result: dict) -> float:
+    """Scorecard weight with the experience emphasis applied (see
+    EXPERIENCE_WEIGHT_MULTIPLIER). Used everywhere a weight is consumed, so
+    the headline score, the dimensional breakdown and the gap-closing maths
+    can never disagree about what a criterion is worth."""
+    weight = result["weight"]
+    if result["category"] in EXPERIENCE_CATEGORIES:
+        weight *= EXPERIENCE_WEIGHT_MULTIPLIER
+    return weight
+
+
+def _compute_score(results: list, relevant_years: float = 0.0,
+                   min_required_years: float = 0.0) -> tuple[float, str]:
     core = [r for r in results
             if r["category"] not in SCORE_EXCLUDED_CATEGORIES
             and r["category"] not in BONUS_CATEGORIES]
@@ -1127,8 +1216,8 @@ def _compute_score(results: list) -> tuple[float, str]:
     if not core:
         core = [r for r in results if r["category"] not in SCORE_EXCLUDED_CATEGORIES] or results
         used_bonus_as_core = any(r["category"] in BONUS_CATEGORIES for r in core)
-    total_weight = sum(r["weight"] for r in core) or 1.0
-    earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in core)
+    total_weight = sum(_effective_weight(r) for r in core) or 1.0
+    earned = sum(_effective_weight(r) * STATE_SCORES[r["status"]] for r in core)
     score = 100.0 * earned / total_weight
 
     if not used_bonus_as_core:
@@ -1137,6 +1226,10 @@ def _compute_score(results: list) -> tuple[float, str]:
         if bonus_weight:
             bonus_earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in bonus)
             score = min(100.0, score + MAX_BONUS_POINTS * bonus_earned / bonus_weight)
+
+    # Years beyond the role's minimum are real, valuable signal that criterion
+    # states alone can't express — see experience_surplus_bonus.
+    score = min(100.0, score + experience_surplus_bonus(relevant_years, min_required_years))
 
     # Principle 12 enforced in code, not merely requested in a prompt: a
     # self-selected logistics condition (shift, WFO, relocation, notice period)
@@ -1211,8 +1304,8 @@ def score_dimensions(results: list) -> list[dict]:
     for key, label, items in groups:
         if not items:
             continue
-        weight = sum(r["weight"] for r in items) or 1.0
-        earned = sum(r["weight"] * STATE_SCORES[r["status"]] for r in items)
+        weight = sum(_effective_weight(r) for r in items) or 1.0
+        earned = sum(_effective_weight(r) * STATE_SCORES[r["status"]] for r in items)
         known = sum(1 for r in items if r["status"] in _KNOWN_STATES)
         out.append({
             "key": key,
@@ -1390,6 +1483,14 @@ def _closing_the_gap(score: float, results: list) -> tuple[float, list[dict]]:
     score."""
     if score >= SHORTLIST_THRESHOLD or not results:
         return 0.0, []
+    # Distance to the bar uses the REAL score (experience bonus included) —
+    # that's the actual gap. Per-criterion deltas, though, must be measured
+    # against a baseline computed the same way as the hypotheticals: the
+    # experience surplus bonus doesn't depend on criterion states, so it is
+    # constant across every simulation and cancels out. Comparing a
+    # bonus-free hypothetical against the bonus-inclusive score would
+    # understate every delta by the bonus and could hide all suggestions.
+    baseline, _ = _compute_score(results)
     points_needed = round(SHORTLIST_THRESHOLD - score, 1)
     candidates = []
     for i, r in enumerate(results):
@@ -1398,7 +1499,7 @@ def _closing_the_gap(score: float, results: list) -> tuple[float, list[dict]]:
         hypothetical = list(results)
         hypothetical[i] = {**r, "status": "confirmed"}
         new_score, _ = _compute_score(hypothetical)
-        delta = new_score - score
+        delta = new_score - baseline
         if delta > 0.5:
             candidates.append({"criterion": r["name"], "points": round(delta, 1)})
     candidates.sort(key=lambda c: c["points"], reverse=True)
@@ -1579,14 +1680,23 @@ def _find_snippet(text: str, token: str, width: int = 90) -> str:
     return text[start:start + width].replace("\n", " ").strip()
 
 
-def leaderboard_row(evaluation: Evaluation, rank: int, candidate) -> dict:
-    """Stage 4 leaderboard columns exactly as specified in the brief."""
+def leaderboard_row(evaluation: Evaluation, rank: int, candidate,
+                    cohort: dict | None = None) -> dict:
+    """Stage 4 leaderboard columns exactly as specified in the brief, plus the
+    candidate's standing relative to the rest of the pool (see cohort_scores)."""
+    cohort = cohort or {}
     return {
         "rank": rank,
         "candidate_id": candidate.id,
         "candidate_code": candidate.candidate_code,
         "candidate": candidate.full_name or candidate.resume_filename,
         "overall_match": evaluation.overall_score,
+        "cohort_score": cohort.get("cohort_score"),
+        "cohort_rank": cohort.get("cohort_rank"),
+        "cohort_size": cohort.get("cohort_size"),
+        "cohort_percentile": cohort.get("cohort_percentile"),
+        "cohort_curved": cohort.get("cohort_curved", False),
+        "cohort_note": cohort_note(cohort or None),
         "mandatory_criteria": evaluation.mandatory_status,
         "relevant_experience_years": evaluation.relevant_experience_years,
         "key_strengths": evaluation.key_strengths,
@@ -1604,6 +1714,127 @@ def leaderboard_row(evaluation: Evaluation, rank: int, candidate) -> dict:
         "status": candidate.status,
         "flagged_for_review": candidate.flagged_for_review,
     }
+
+
+# ---------------------------------------------------------------------------
+# Cohort (batch-relative) rating
+#
+# The absolute score answers "does this resume evidence what the role needs."
+# That is the right question for fairness and auditability, but on its own it
+# answers the recruiter's actual question badly: given the 120 resumes that
+# actually arrived, which should I call first? If the whole pile scores in the
+# 50s against an idealised bar, an absolute score reports "nobody is good"
+# when the real answer is "these five are the best available, start there" —
+# somebody in a real pile still has to be the one worth calling.
+#
+# So a cohort score is computed ALONGSIDE the absolute score, never replacing
+# it. Three properties make this safe:
+#   1. It only ever lifts, never lowers (`max` against the absolute score), so
+#      a genuinely strong candidate in a weak or tiny pool is never downgraded
+#      for the company they happen to be compared against.
+#   2. It never drives a recommendation. shortlist / recruiter_review /
+#      do_not_shortlist stay keyed to evidence and the absolute score, so a
+#      curve can never manufacture an automatic shortlist.
+#   3. The ceiling scales with pool size — being top of 8 resumes says much
+#      less than being top of 150, and the number reflects that instead of
+#      pretending otherwise.
+# Recomputed from stored evaluations on every read, so adding resumes
+# automatically re-ranks and re-rates everyone already screened.
+# ---------------------------------------------------------------------------
+
+# Pool size -> what the top candidate in that pool should rate. Being the best
+# of a large, genuine pile is real evidence of relative strength; being the
+# best of three is barely evidence at all.
+_COHORT_CEILINGS: list[tuple[int, float]] = [
+    (100, 80.0),   # a full pile — the best of it is worth calling, near-certainly
+    (50, 77.0),
+    (20, 74.0),
+    (10, 71.0),
+    (5, 68.0),
+]
+_COHORT_MIN_POOL = 5      # below this, ranking one against another is noise
+_COHORT_FLOOR = 30.0      # bottom of the curve, so the spread stays readable
+
+
+def _cohort_ceiling(pool_size: int) -> float:
+    for threshold, ceiling in _COHORT_CEILINGS:
+        if pool_size >= threshold:
+            return ceiling
+    return 0.0
+
+
+def cohort_scores(evaluations: list) -> dict[int, dict]:
+    """Rate every evaluation relative to the rest of the pool it belongs to.
+
+    Returns {evaluation_id: {...}} so callers can attach the result to their
+    own rows. Ties on the absolute score share a rank and therefore share a
+    cohort score — two identical resumes must never be separated by an
+    accident of list ordering.
+    """
+    scored = [e for e in evaluations if e.overall_score is not None]
+    n = len(scored)
+    if n == 0:
+        return {}
+
+    ceiling = _cohort_ceiling(n)
+    ordered = sorted(scored, key=lambda e: e.overall_score, reverse=True)
+
+    # Competition ranking: equal absolute scores get the same rank.
+    ranks: dict[int, int] = {}
+    previous_score, previous_rank = None, 0
+    for position, evaluation in enumerate(ordered, start=1):
+        if previous_score is not None and evaluation.overall_score == previous_score:
+            rank = previous_rank
+        else:
+            rank = position
+        ranks[evaluation.id] = rank
+        previous_score, previous_rank = evaluation.overall_score, rank
+
+    out: dict[int, dict] = {}
+    for evaluation in ordered:
+        rank = ranks[evaluation.id]
+        percentile = 1.0 if n == 1 else (n - rank) / (n - 1)
+        if n < _COHORT_MIN_POOL or ceiling <= 0:
+            # Too small a pool to rate anyone relative to anyone else; report
+            # the rank for context but leave the rating absolute.
+            cohort_score = evaluation.overall_score
+            curved = False
+        else:
+            curve = _COHORT_FLOOR + (ceiling - _COHORT_FLOOR) * percentile
+            # Lift-only: never let the cohort view downgrade a candidate whose
+            # own evidence already scores higher than their peer position.
+            cohort_score = max(evaluation.overall_score, curve)
+            curved = cohort_score > evaluation.overall_score
+        out[evaluation.id] = {
+            "cohort_score": round(cohort_score, 1),
+            "cohort_rank": rank,
+            "cohort_size": n,
+            "cohort_percentile": round(100 * percentile),
+            "cohort_curved": curved,
+        }
+    return out
+
+
+def cohort_note(entry: dict | None) -> str:
+    """One plain sentence explaining a candidate's standing in the pile, for a
+    recruiter who should never have to reason about percentiles."""
+    if not entry:
+        return ""
+    rank, size = entry["cohort_rank"], entry["cohort_size"]
+    if size < _COHORT_MIN_POOL:
+        return (
+            f"Ranked {rank} of {size} screened so far — too few applicants yet to "
+            "rate anyone relative to the pool, so this is the evidence score alone."
+        )
+    base = f"Ranked {rank} of {size} screened for this role"
+    if entry["cohort_curved"]:
+        return (
+            f"{base}. Rated {entry['cohort_score']:g} relative to this pool: the "
+            "evidence score alone judges everyone against an ideal, while this rates "
+            "them against who actually applied — the strongest of a real pile is still "
+            "the one worth calling first."
+        )
+    return f"{base}. Their own evidence already rates above their position in the pool."
 
 
 def pool_insight(evaluations: list) -> dict:

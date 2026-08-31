@@ -153,3 +153,34 @@ def test_responsible_ai_report(auth_client):
     assert report["ai_missed_common_criteria"] == []
     assert report["ai_overselected_common_criteria"] == []
     assert "override_pattern_note" in report
+
+
+def test_location_fit_tab_and_cohort_rating(auth_client):
+    """The location roster is served per job and never touches scoring, and
+    cohort ratings re-rank live as more resumes arrive."""
+    client = auth_client
+    jid = _approve_and_screen(client, {**BANNER_JD, "title": "Location + cohort job",
+                                       "location": "Gurugram, India", "work_model": "hybrid"},
+                              [("a.docx", BANNER_RESUME), ("b.docx", OTHER_RESUME)])
+
+    roster = client.get(f"/api/jobs/{jid}/location-fit").json()
+    assert roster["total"] == 2
+    assert roster["job_location"] == "Gurugram, India"
+    assert "nothing on this tab changes a candidate's rating" in roster["note"].lower()
+    assert {r["status"] for r in roster["candidates"]} <= {
+        "confirmed", "likely_match", "remote_role", "needs_confirmation", "different_location",
+    }
+
+    # Scores must be identical whether or not the location tab is consulted —
+    # it is a read-only operational view.
+    before = {r["candidate_id"]: r["overall_match"]
+              for r in client.get(f"/api/jobs/{jid}/leaderboard").json()}
+    client.get(f"/api/jobs/{jid}/location-fit")
+    after = {r["candidate_id"]: r["overall_match"]
+             for r in client.get(f"/api/jobs/{jid}/leaderboard").json()}
+    assert before == after
+
+    # Cohort standing is present on the leaderboard and sized to the pool.
+    board = client.get(f"/api/jobs/{jid}/leaderboard").json()
+    assert all(row["cohort_size"] == len(board) for row in board)
+    assert board[0]["cohort_rank"] == 1

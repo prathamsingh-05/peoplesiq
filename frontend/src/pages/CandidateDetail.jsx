@@ -165,6 +165,11 @@ function AssessmentTab({ candidateId, candidate }) {
 
   return (
     <div>
+      {ev.cohort_note && (
+        <Alert kind="info">
+          <b>Standing in this role's applicant pool:</b> {ev.cohort_note}
+        </Alert>
+      )}
       <DimensionsCard ev={ev} />
       <CareerTimelineCard timeline={candidate?.career_timeline} />
       {g && (

@@ -19,6 +19,7 @@ from ..models import (
     Scorecard, ScorecardStatus, ScreeningQuestion, User,
 )
 from ..schemas import BulkDecisionRequest, CallOutcome, DecisionRequest, QuestionAnswer
+from ..services import location_fit
 from ..services import screening as engine
 from ..services import summary as summary_service
 from ..services.questions import generate_questions
@@ -301,8 +302,28 @@ def leaderboard(job_id: int, user: User = Depends(require_any_user),
         if not candidate.evaluations:
             continue
         rows.append((candidate.evaluations[0], candidate))
+    # Cohort ratings are derived from the whole pool on every read, so adding
+    # more resumes automatically re-ranks and re-rates everyone already
+    # screened — no rescreen needed.
+    cohort = engine.cohort_scores([e for e, _ in rows])
     rows.sort(key=lambda pair: pair[0].overall_score, reverse=True)
-    return [engine.leaderboard_row(e, rank, c) for rank, (e, c) in enumerate(rows, start=1)]
+    return [engine.leaderboard_row(e, rank, c, cohort.get(e.id))
+            for rank, (e, c) in enumerate(rows, start=1)]
+
+
+@router.get("/jobs/{job_id}/location-fit")
+def get_location_fit(job_id: int, user: User = Depends(require_any_user),
+                     db: Session = Depends(get_db)):
+    """Who can actually take this role, location- and shift-wise.
+
+    Purely operational: nothing here feeds any score, ranking or
+    recommendation — location and shift are excluded from scoring by design
+    (screening.py principles 8 and 12). This just answers the logistics
+    question in one place instead of one candidate at a time."""
+    job = db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return location_fit.job_location_roster(job)
 
 
 @router.get("/jobs/{job_id}/pool-insight")
@@ -342,7 +363,15 @@ def get_evaluation(candidate_id: int, user: User = Depends(require_any_user),
         raise HTTPException(status_code=404, detail="Candidate not found")
     if not candidate.evaluations:
         raise HTTPException(status_code=404, detail="Candidate has not been screened yet")
-    return _evaluation_out(candidate.evaluations[0])
+    evaluation = candidate.evaluations[0]
+    # Standing within this role's pool, recomputed live so it reflects every
+    # resume uploaded so far — not whatever the pool looked like at screening.
+    pool = [c.evaluations[0] for c in candidate.job.candidates if c.evaluations]
+    cohort = engine.cohort_scores(pool).get(evaluation.id)
+    out = _evaluation_out(evaluation)
+    out["cohort"] = cohort
+    out["cohort_note"] = engine.cohort_note(cohort)
+    return out
 
 
 @router.post("/candidates/{candidate_id}/decision")

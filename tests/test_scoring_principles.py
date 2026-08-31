@@ -9,8 +9,9 @@ from app.services.screening import (
     SHORTLIST_THRESHOLD, _calibration_block, _closing_the_gap, _compute_score,
     _detect_experience_discrepancy, _detect_inconsistent_criteria, _detect_injection_signals,
     _deterministic_evaluate, _lpa_band_guidance, _parse_lpa, _recommend, _token_variants,
-    _verify_evidence, build_recruiter_guidance, dimension_headline, pool_insight,
-    score_dimensions, top_differentiators,
+    _verify_evidence, build_recruiter_guidance, cohort_note, cohort_scores,
+    dimension_headline, experience_surplus_bonus, pool_insight, score_dimensions,
+    top_differentiators,
 )
 from app.services.scorecard import _deterministic_scorecard, _is_logistics_condition
 
@@ -813,7 +814,11 @@ def test_must_haves_dimension_covers_mandatory_criteria_of_any_category():
     ]
     dims = {d["key"]: d for d in score_dimensions(results)}
     assert dims["must_haves"]["criterion_count"] == 2
-    assert dims["must_haves"]["score"] == 50.0
+    # Below half: the two criteria carry equal scorecard weight, but the unmet
+    # one is an experience criterion and so carries the experience multiplier
+    # (principle 30). The point of the test is that a must-have with no
+    # evidence drags this dimension down rather than being hidden.
+    assert 0 < dims["must_haves"]["score"] < 50.0
 
 
 def test_must_haves_dimension_excludes_logistics_mandatory():
@@ -849,3 +854,157 @@ def test_dimension_headline_empty_without_scored_dimensions():
     assert dimension_headline([]) == ""
     only_bonus = [_criterion("Nice", 1.0, "confirmed", category="preferred")]
     assert dimension_headline(score_dimensions(only_bonus)) == ""
+
+
+# ---------------------------------------------------------------------------
+# Principle 30: relevant experience is the heaviest single factor — weighted
+# up, and rewarded beyond the role's minimum, but never allowed to substitute
+# for demonstrated skill.
+# ---------------------------------------------------------------------------
+def test_experience_criteria_carry_more_weight_than_equal_weighted_skills():
+    """Same scorecard weight, same evidence — the experience gap must cost
+    more than the skill gap."""
+    experience_missing = [
+        _criterion("Relevant experience", 2.0, "no_evidence", category="experience"),
+        _criterion("Core skill", 2.0, "confirmed", category="technical_skills"),
+    ]
+    skill_missing = [
+        _criterion("Relevant experience", 2.0, "confirmed", category="experience"),
+        _criterion("Core skill", 2.0, "no_evidence", category="technical_skills"),
+    ]
+    assert _compute_score(experience_missing)[0] < _compute_score(skill_missing)[0]
+
+
+def test_seniority_criteria_also_carry_the_experience_emphasis():
+    seniority_missing = [
+        _criterion("Scope/seniority", 2.0, "no_evidence", category="seniority"),
+        _criterion("Core skill", 2.0, "confirmed", category="technical_skills"),
+    ]
+    skill_missing = [
+        _criterion("Scope/seniority", 2.0, "confirmed", category="seniority"),
+        _criterion("Core skill", 2.0, "no_evidence", category="technical_skills"),
+    ]
+    assert _compute_score(seniority_missing)[0] < _compute_score(skill_missing)[0]
+
+
+def test_experience_never_substitutes_for_missing_skills():
+    """Long experience plus no skill evidence must still lose to a candidate
+    who has both — the multiplier must not let tenure carry a hollow resume."""
+    experience_only = [
+        _criterion("Relevant experience", 3.0, "confirmed", category="experience"),
+        _criterion("Skill A", 2.0, "no_evidence", category="technical_skills"),
+        _criterion("Skill B", 2.0, "no_evidence", category="technical_skills"),
+    ]
+    both = [
+        _criterion("Relevant experience", 3.0, "confirmed", category="experience"),
+        _criterion("Skill A", 2.0, "confirmed", category="technical_skills"),
+        _criterion("Skill B", 2.0, "confirmed", category="technical_skills"),
+    ]
+    long_tenure = _compute_score(experience_only, relevant_years=20, min_required_years=3)[0]
+    assert long_tenure < _compute_score(both)[0]
+
+
+def test_surplus_experience_adds_bounded_credit():
+    assert experience_surplus_bonus(3, 3) == 0.0        # exactly at the bar
+    assert experience_surplus_bonus(2, 3) == 0.0        # under the bar — never a penalty
+    assert experience_surplus_bonus(5, 3) > 0           # over the bar — real credit
+    assert experience_surplus_bonus(8, 3) > experience_surplus_bonus(5, 3)
+    # Saturating and capped: a further decade cannot outweigh actual skills.
+    assert experience_surplus_bonus(40, 3) == experience_surplus_bonus(8, 3)
+    assert experience_surplus_bonus(40, 3) <= 8.0
+
+
+def test_surplus_bonus_needs_a_stated_minimum():
+    # With no minimum on the job there is nothing to exceed.
+    assert experience_surplus_bonus(20, 0) == 0.0
+
+
+def test_more_experience_scores_at_least_as_well_as_less():
+    results = [
+        _criterion("Relevant experience", 3.0, "confirmed", category="experience"),
+        _criterion("Core skill", 2.0, "partial", category="technical_skills"),
+    ]
+    junior = _compute_score(results, relevant_years=3, min_required_years=3)[0]
+    senior = _compute_score(results, relevant_years=9, min_required_years=3)[0]
+    assert senior > junior
+
+
+def test_closing_the_gap_deltas_survive_the_experience_bonus():
+    """Regression: per-criterion deltas are measured against a baseline
+    computed the same way as the hypotheticals. Comparing a bonus-free
+    hypothetical against a bonus-inclusive score understated every delta and
+    could hide all suggestions."""
+    results = [
+        _criterion("Relevant experience", 3.0, "confirmed", category="experience"),
+        _criterion("Skill A", 2.0, "no_evidence", category="technical_skills"),
+        _criterion("Skill B", 2.0, "no_evidence", category="technical_skills"),
+    ]
+    score, _ = _compute_score(results, relevant_years=25, min_required_years=2)
+    points_needed, closing = _closing_the_gap(score, results)
+    assert closing, "gap-closing suggestions vanished once the experience bonus applied"
+    assert all(c["points"] > 0 for c in closing)
+
+
+# ---------------------------------------------------------------------------
+# Principle 31: rate against who actually applied, not only an ideal bar.
+# ---------------------------------------------------------------------------
+def _ev(eid, score):
+    return SimpleNamespace(id=eid, overall_score=score, recommendation="recruiter_review",
+                           criterion_results=[])
+
+
+def test_best_of_a_large_pool_is_rated_as_worth_calling():
+    """The headline ask: in a real pile of ~120 resumes, the strongest is the
+    one to call first even if nobody clears an idealised bar."""
+    pool = [_ev(i, 40 + (i % 15)) for i in range(1, 121)]
+    scores = cohort_scores(pool)
+    top = max(scores.values(), key=lambda s: s["cohort_score"])
+    assert 75 <= top["cohort_score"] <= 80
+    assert top["cohort_rank"] == 1
+
+
+def test_cohort_ceiling_scales_with_pool_size():
+    def top_of(n):
+        pool = [_ev(i, 40 + (i % 10)) for i in range(1, n + 1)]
+        return max(cohort_scores(pool).values(), key=lambda s: s["cohort_score"])["cohort_score"]
+    # Topping 150 resumes means more than topping 10.
+    assert top_of(120) > top_of(60) > top_of(25) > top_of(12)
+
+
+def test_cohort_score_never_lowers_a_strong_candidate():
+    """A genuinely strong candidate must never be downgraded for the company
+    they happen to be compared against."""
+    pool = [_ev(1, 95.0)] + [_ev(i, 90.0) for i in range(2, 40)]
+    scores = cohort_scores(pool)
+    assert scores[1]["cohort_score"] == 95.0     # untouched, not curved down
+    assert all(s["cohort_score"] >= 90.0 for s in scores.values())
+
+
+def test_tiny_pool_is_not_curved_at_all():
+    pool = [_ev(1, 52.0), _ev(2, 40.0)]
+    scores = cohort_scores(pool)
+    assert scores[1]["cohort_score"] == 52.0
+    assert scores[1]["cohort_curved"] is False
+    assert "too few applicants" in cohort_note(scores[1])
+
+
+def test_equal_scores_share_a_rank_and_a_cohort_score():
+    pool = [_ev(1, 60.0), _ev(2, 60.0), _ev(3, 50.0)] + [_ev(i, 30.0) for i in range(4, 12)]
+    scores = cohort_scores(pool)
+    assert scores[1]["cohort_rank"] == scores[2]["cohort_rank"] == 1
+    assert scores[1]["cohort_score"] == scores[2]["cohort_score"]
+
+
+def test_adding_resumes_reranks_the_existing_ones():
+    """Cohort ratings are derived on read, so a new arrival re-places everyone."""
+    before = cohort_scores([_ev(i, 90 - i) for i in range(1, 21)])
+    after = cohort_scores([_ev(i, 90 - i) for i in range(1, 21)] + [_ev(99, 100.0)])
+    assert before[1]["cohort_rank"] == 1
+    assert after[1]["cohort_rank"] == 2          # displaced by the stronger arrival
+    assert after[99]["cohort_rank"] == 1
+    assert after[1]["cohort_size"] == 21
+
+
+def test_cohort_scores_handles_an_empty_pool():
+    assert cohort_scores([]) == {}
+    assert cohort_note(None) == ""

@@ -96,6 +96,13 @@ Rules:
   A resume that demonstrates the underlying capability in different words should still
   be able to earn "confirmed" or "partial" evidence, not "no_evidence" on a technicality.
 - Weights: 1.0 (standard) to 3.0 (critical); preferred criteria 0.5-1.0.
+- EXPERIENCE WEIGHTING RULE: depth of genuinely relevant experience is the most
+  valuable thing a resume can show, so always include a category=experience
+  criterion covering relevant years/depth for this role and weight it at the top of
+  the range (2.5-3.0). Write it to reward relevant depth rather than raw career
+  length — "years in roles doing work close to this one," not "total years working."
+  Where seniority/scope matters for the role, a category=seniority criterion should
+  carry similarly high weight.
 - TECHNICAL SKILL WEIGHTING RULE: every skill listed under "Essential skills" below
   must become its own technical_skills criterion (or be clearly covered by one),
   weighted 2.0-3.0 in proportion to how central the JD treats it — these are the

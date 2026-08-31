@@ -70,10 +70,11 @@ export default function JobDetail() {
       {deleteError && <Alert kind="error" onClose={() => setDeleteError('')}>{deleteError}</Alert>}
 
       <div className="tabs">
-        {['scorecard', 'upload', 'leaderboard', 'rediscover'].map((t) => (
+        {['scorecard', 'upload', 'leaderboard', 'location', 'rediscover'].map((t) => (
           <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
             {{ scorecard: '1 · Scorecard', upload: '2 · Upload CVs',
-               leaderboard: '3 · Screen & Leaderboard', rediscover: '4 · Rediscover talent' }[t]}
+               leaderboard: '3 · Screen & Leaderboard', location: '4 · Location fit',
+               rediscover: '5 · Rediscover talent' }[t]}
           </button>
         ))}
       </div>
@@ -81,7 +82,81 @@ export default function JobDetail() {
       {tab === 'scorecard' && <ScorecardTab jobId={jobId} onApproved={job.reload} />}
       {tab === 'upload' && <UploadTab jobId={jobId} hasScorecard={data.has_approved_scorecard} />}
       {tab === 'leaderboard' && <LeaderboardTab jobId={jobId} hasScorecard={data.has_approved_scorecard} />}
+      {tab === 'location' && <LocationFitTab jobId={jobId} />}
       {tab === 'rediscover' && <RediscoverTab jobId={jobId} hasScorecard={data.has_approved_scorecard} />}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+const _LOCATION_LABELS = {
+  confirmed: 'Confirmed on call',
+  likely_match: 'Location matches',
+  remote_role: 'Remote role',
+  needs_confirmation: 'Ask on the call',
+  different_location: 'Different location',
+}
+
+function LocationFitTab({ jobId }) {
+  const roster = useAsync(() => api.get(`/api/jobs/${jobId}/location-fit`), [jobId])
+  const [filter, setFilter] = useState('')
+
+  if (roster.loading) return <Spinner />
+  if (roster.error) return <Alert kind="error">{roster.error}</Alert>
+  const data = roster.data
+  const rows = filter ? data.candidates.filter((c) => c.status === filter) : data.candidates
+
+  return (
+    <div className="card">
+      <div className="row between">
+        <h2>Who can actually take this role</h2>
+        <span className="small muted">
+          {data.job_location || 'no location set'}
+          {data.work_model && ` · ${data.work_model}`}
+          {data.working_hours && ` · ${data.working_hours}`}
+        </span>
+      </div>
+      <Alert kind="info">{data.note}</Alert>
+
+      <div className="row" style={{ flexWrap: 'wrap', marginBottom: 12 }}>
+        <button className={`btn sm ${filter ? 'secondary' : ''}`} onClick={() => setFilter('')}>
+          All ({data.total})
+        </button>
+        {Object.entries(data.counts).map(([status, count]) => (
+          <button key={status} className={`btn sm ${filter === status ? '' : 'secondary'}`}
+                  onClick={() => setFilter(filter === status ? '' : status)}>
+            {_LOCATION_LABELS[status] || status} ({count})
+          </button>
+        ))}
+      </div>
+
+      {data.total === 0 && <p className="muted">No candidates uploaded for this role yet.</p>}
+      {data.total > 0 && (
+        <table className="data">
+          <thead><tr>
+            <th>Candidate</th><th>Location fit</th><th>Resume says</th>
+            <th>Shift confirmed</th><th>What to do</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((c) => (
+              <tr key={c.candidate_id}>
+                <td>
+                  <Link to={`/candidates/${c.candidate_id}`}><b>{c.candidate}</b></Link>
+                  <div className="small muted">{c.candidate_code}</div>
+                </td>
+                <td><Badge value={c.status} /></td>
+                <td className="small">{c.candidate_location || <span className="muted">not stated</span>}</td>
+                <td className="small">
+                  {c.shift_confirmed === true ? '✓'
+                    : c.needs_shift_confirmation ? <span className="muted">to confirm</span>
+                    : <span className="muted">—</span>}
+                </td>
+                <td className="small muted">{c.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }
@@ -378,7 +453,12 @@ function LeaderboardTab({ jobId, hasScorecard }) {
       {board.loading ? <Spinner /> : (
         <table className="data">
           <thead><tr>
-            <th></th><th>#</th><th>Candidate</th><th>Guidance</th><th>Match</th><th>Mandatory</th><th>Rel. exp</th>
+            <th></th><th>#</th><th>Candidate</th><th>Guidance</th>
+            <th title="Rated against the other candidates who actually applied for this role">
+              Rating in pool</th>
+            <th title="Evidence score against the role's requirements, independent of who else applied">
+              Evidence</th>
+            <th>Mandatory</th><th>Rel. exp</th>
             <th>Key strengths</th><th>Gaps</th><th>Risk flags</th>
             <th>AI recommendation</th><th>Confidence</th><th>Recruiter decision</th>
           </tr></thead>
@@ -395,6 +475,15 @@ function LeaderboardTab({ jobId, hasScorecard }) {
                   {row.flagged_for_review && <Badge value="pending_review" />}
                 </td>
                 <td><GuidanceChip guidance={row.recruiter_guidance} /></td>
+                <td>
+                  <Score value={row.cohort_score ?? row.overall_match} />
+                  {row.cohort_size > 0 && (
+                    <div className="small muted" title={row.cohort_note}>
+                      #{row.cohort_rank} of {row.cohort_size}
+                      {row.cohort_curved && ' · vs pool'}
+                    </div>
+                  )}
+                </td>
                 <td><Score value={row.overall_match} /></td>
                 <td><Badge value={row.mandatory_criteria} /></td>
                 <td>{row.relevant_experience_years} y</td>

@@ -953,10 +953,10 @@ def _ev(eid, score):
                            criterion_results=[])
 
 
-def test_best_of_a_large_pool_is_rated_as_worth_calling():
-    """The headline ask: in a real pile of ~120 resumes, the strongest is the
-    one to call first even if nobody clears an idealised bar."""
-    pool = [_ev(i, 40 + (i % 15)) for i in range(1, 121)]
+def test_best_of_a_large_mediocre_pool_is_rated_as_worth_calling():
+    """In a real pile of ~120 decent-but-unspectacular resumes, the strongest
+    is the one to call first even though nobody clears an idealised bar."""
+    pool = [_ev(i, 45 + (i % 16)) for i in range(1, 121)]   # tops out at 60
     scores = cohort_scores(pool)
     top = max(scores.values(), key=lambda s: s["cohort_score"])
     assert 75 <= top["cohort_score"] <= 80
@@ -965,10 +965,66 @@ def test_best_of_a_large_pool_is_rated_as_worth_calling():
 
 def test_cohort_ceiling_scales_with_pool_size():
     def top_of(n):
-        pool = [_ev(i, 40 + (i % 10)) for i in range(1, n + 1)]
+        # Top of the pool sits just under the ceilings, so the pool-size
+        # ceiling (not the lift cap) is what differentiates.
+        pool = [_ev(i, 63 + (i % 10)) for i in range(1, n + 1)]
         return max(cohort_scores(pool).values(), key=lambda s: s["cohort_score"])["cohort_score"]
-    # Topping 150 resumes means more than topping 10.
+    # Topping 120 resumes means more than topping 12.
     assert top_of(120) > top_of(60) > top_of(25) > top_of(12)
+
+
+# --- The honesty half: comparative, but genuine good/bad stay objective -----
+def test_a_genuine_standout_keeps_their_own_score():
+    """A real 90 reads 90 no matter how small or weak the field."""
+    for size in (6, 30, 120):
+        pool = [_ev(1, 90.0)] + [_ev(i, 35.0) for i in range(2, size + 1)]
+        assert cohort_scores(pool)[1]["cohort_score"] == 90.0
+
+
+def test_a_standout_does_not_drag_the_rest_of_the_field_up():
+    """The bug this rule exists to prevent: everyone below a standout being
+    lifted toward that standout's position, so a real 40 displayed as a 72."""
+    pool = [_ev(1, 90.0), _ev(2, 40.0), _ev(3, 38.0)] + [_ev(i, 30.0) for i in range(4, 31)]
+    scores = cohort_scores(pool)
+    assert scores[2]["cohort_score"] == 40.0
+    assert scores[3]["cohort_score"] == 38.0
+    assert scores[4]["cohort_score"] == 30.0
+
+
+def test_best_of_a_genuinely_bad_pile_is_still_rated_low():
+    """Comparatively best but actually weak must not read as good — even in a
+    large pile, where the pool-size ceiling would otherwise reach 80."""
+    pool = [_ev(i, 25.0 + (i % 6)) for i in range(1, 121)]   # nobody above 30
+    scores = cohort_scores(pool)
+    best = max(s["cohort_score"] for s in scores.values())
+    assert best <= 45.0, "topping a bad pile must not manufacture a good rating"
+
+
+def test_nobody_is_lifted_more_than_the_cap():
+    pool = [_ev(i, 20.0 + (i % 3)) for i in range(1, 121)]
+    scores = cohort_scores(pool)
+    absolutes = {e.id: e.overall_score for e in pool}
+    assert all(s["cohort_score"] - absolutes[eid] <= 15.0 for eid, s in scores.items())
+
+
+def test_a_strong_pool_is_not_adjusted_at_all():
+    """When the pool's best is already strong there is no headroom, so every
+    rating is the evidence score itself."""
+    pool = [_ev(i, 78.0 + (i % 11)) for i in range(1, 61)]
+    scores = cohort_scores(pool)
+    absolutes = {e.id: e.overall_score for e in pool}
+    assert all(s["cohort_score"] == absolutes[eid] for eid, s in scores.items())
+    assert all(s["cohort_curved"] is False for s in scores.values())
+
+
+def test_real_gaps_between_candidates_survive_the_nudge():
+    """Ordering AND spacing must stay recognisable — the nudge must not
+    compress genuinely different candidates into near-parity."""
+    pool = [_ev(1, 62.0), _ev(2, 58.0)] + [_ev(i, 30.0) for i in range(3, 41)]
+    scores = cohort_scores(pool)
+    assert scores[1]["cohort_score"] > scores[2]["cohort_score"] > scores[3]["cohort_score"]
+    # The 28-point gulf between the top two and the field stays a real gulf.
+    assert scores[2]["cohort_score"] - scores[3]["cohort_score"] > 15
 
 
 def test_cohort_score_never_lowers_a_strong_candidate():

@@ -227,17 +227,30 @@ literature and NYC LL144 / EEOC-style controls):
     always at least as good, never dramatically better, so experience
     amplifies demonstrated substance without ever substituting for it, and
     over-qualification stays a risk_flags conversation rather than a penalty.
-31. A rating is also relative to who actually applied. The absolute score
+31. A rating is nudged by who actually applied, never rewritten by them. The
+    absolute score
     answers "does this resume evidence what the role needs", which is the
     right question for fairness but the wrong one for "which of these 120
     resumes do I call first" — against an idealised bar a whole real pile can
     score in the 50s, when the useful answer is that these five are the best
-    available. `cohort_scores` therefore rates each candidate against their
-    own pool, with three safeguards: it only ever lifts, never lowers (a
-    strong candidate is never downgraded for the company they're compared
-    against); it never drives a recommendation (shortlist/review/reject stay
-    keyed to evidence); and its ceiling scales with pool size, since topping
-    150 resumes means more than topping three. Recomputed on read, so adding
+    available. `cohort_scores` therefore nudges each candidate by their
+    standing in their own pool — but genuinely good and genuinely bad stay
+    largely objective, which four rules enforce:
+      - The nudge is anchored to how good the pool's best candidate ACTUALLY
+        is. When the top of the pool is already strong there is no headroom
+        and nobody is adjusted at all, so a real 90 reads 90 and the people
+        behind them are not dragged up toward that position.
+      - It is applied from each candidate's own score, so genuine gaps between
+        candidates survive instead of being compressed into rank order.
+      - It is capped (`_MAX_COHORT_LIFT`): ranking well in a weak field is
+        worth something, never enough to transform a rating.
+      - A candidate below the review line is never lifted past it
+        (`_COHORT_HONESTY_CEILING`) — best of a bad pile is still the best of
+        a bad pile, and saying otherwise would send a recruiter into a call
+        expecting someone who doesn't exist.
+    It also never drives a recommendation (shortlist/review/reject stay keyed
+    to evidence), its ceiling scales with pool size since topping 150 resumes
+    means more than topping three, and it is recomputed on read, so adding
     resumes re-ranks everyone already screened.
 32. These are enforced by `tests/test_scoring_principles.py`,
     `tests/test_career_timeline.py`, `tests/test_role_archetype.py`,
@@ -1753,7 +1766,20 @@ _COHORT_CEILINGS: list[tuple[int, float]] = [
     (5, 68.0),
 ]
 _COHORT_MIN_POOL = 5      # below this, ranking one against another is noise
-_COHORT_FLOOR = 30.0      # bottom of the curve, so the spread stays readable
+
+# The cohort view NUDGES, it never rewrites. Two honesty limits keep a
+# comparative rating from lying about quality:
+#
+#   1. No candidate is lifted more than this. Ranking well against a weak field
+#      is worth something, but not enough to turn a 30 into a 70 — a rating
+#      that says "strong" about a resume that isn't would send a recruiter into
+#      a call expecting someone who doesn't exist.
+#   2. A candidate whose own evidence sits below the review line is never
+#      lifted past it. Being the best of a genuinely bad pile still means the
+#      pile is bad; the honest output is "this is who's closest, and they're
+#      still weak", not a manufactured good score.
+_MAX_COHORT_LIFT = 15.0
+_COHORT_HONESTY_CEILING = REVIEW_THRESHOLD
 
 
 def _cohort_ceiling(pool_size: int) -> float:
@@ -1779,6 +1805,20 @@ def cohort_scores(evaluations: list) -> dict[int, dict]:
     ceiling = _cohort_ceiling(n)
     ordered = sorted(scored, key=lambda e: e.overall_score, reverse=True)
 
+    # Anchor the nudge to how good the pool's best candidate ACTUALLY is,
+    # rather than assigning each rank a position on a curve. Assigning by rank
+    # had two bad consequences: a pool containing a genuine standout saw
+    # everyone below them dragged up toward that standout's position (a real
+    # 40 displayed as a 72), and a pool with no standout at all still had its
+    # top rated as though one existed.
+    #
+    # Headroom is what the top candidate is missing relative to what the best
+    # of a pool this size could be worth calling at. When the best candidate is
+    # already at or above that, there is no headroom and NOBODY is nudged —
+    # the pool has real talent and the evidence scores already tell the story.
+    top_score = ordered[0].overall_score
+    headroom = min(max(0.0, ceiling - top_score), _MAX_COHORT_LIFT)
+
     # Competition ranking: equal absolute scores get the same rank.
     ranks: dict[int, int] = {}
     previous_score, previous_rank = None, 0
@@ -1794,17 +1834,24 @@ def cohort_scores(evaluations: list) -> dict[int, dict]:
     for evaluation in ordered:
         rank = ranks[evaluation.id]
         percentile = 1.0 if n == 1 else (n - rank) / (n - 1)
-        if n < _COHORT_MIN_POOL or ceiling <= 0:
-            # Too small a pool to rate anyone relative to anyone else; report
-            # the rank for context but leave the rating absolute.
-            cohort_score = evaluation.overall_score
-            curved = False
+        absolute = evaluation.overall_score
+        if n < _COHORT_MIN_POOL or ceiling <= 0 or headroom <= 0:
+            # Either too small a pool to rank meaningfully, or the pool's best
+            # candidate is already strong on their own evidence — in both cases
+            # the honest rating is the evidence score itself.
+            cohort_score = absolute
         else:
-            curve = _COHORT_FLOOR + (ceiling - _COHORT_FLOOR) * percentile
-            # Lift-only: never let the cohort view downgrade a candidate whose
-            # own evidence already scores higher than their peer position.
-            cohort_score = max(evaluation.overall_score, curve)
-            curved = cohort_score > evaluation.overall_score
+            # Nudge upward in proportion to standing, from the candidate's OWN
+            # score — so real gaps between candidates are preserved rather than
+            # compressed toward whoever happens to be top.
+            cohort_score = absolute + headroom * percentile
+            # Honesty limit: a resume whose own evidence is below the review
+            # line is never presented as having cleared it. Best of a bad pile
+            # is still the best of a bad pile.
+            if absolute < _COHORT_HONESTY_CEILING:
+                cohort_score = min(cohort_score, _COHORT_HONESTY_CEILING)
+            cohort_score = min(cohort_score, 100.0)
+        curved = cohort_score > absolute
         out[evaluation.id] = {
             "cohort_score": round(cohort_score, 1),
             "cohort_rank": rank,
@@ -1829,12 +1876,16 @@ def cohort_note(entry: dict | None) -> str:
     base = f"Ranked {rank} of {size} screened for this role"
     if entry["cohort_curved"]:
         return (
-            f"{base}. Rated {entry['cohort_score']:g} relative to this pool: the "
-            "evidence score alone judges everyone against an ideal, while this rates "
-            "them against who actually applied — the strongest of a real pile is still "
-            "the one worth calling first."
+            f"{base}. Rated {entry['cohort_score']:g} — slightly above their evidence "
+            "score, because standing out in the field that actually applied counts for "
+            "something. The nudge is capped, and a resume whose own evidence is weak is "
+            "never rated as strong just for topping a weak pile."
         )
-    return f"{base}. Their own evidence already rates above their position in the pool."
+    return (
+        f"{base}. Rated on their own evidence, with no adjustment for the pool — either "
+        "the strongest candidates here are genuinely strong already, or this one's "
+        "evidence speaks for itself."
+    )
 
 
 def pool_insight(evaluations: list) -> dict:
